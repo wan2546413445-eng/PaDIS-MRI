@@ -266,4 +266,3 @@ dependencies:
       - typing-inspection==0.4.0
       - tzdata==2025.2
       - wandb==0.19.8
-prefix: /home/rohan/miniconda3/envs/edm1
