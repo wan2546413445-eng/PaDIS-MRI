@@ -100,7 +100,7 @@ class DPSHyperEvaluator:
             gt: torch.Tensor [1, 1, H, W] complex (on CUDA)
             mri_inf_utils: MRI_utils (for computing adjoint)
         """
-        data = torch.load(os.path.join(self.val_dir, f"sample_{idx}.pt"))
+        data = torch.load(os.path.join(self.val_dir, f"sample_{idx}.pt"), weights_only=False)
         gt = data['gt'][None,None,...].cuda()
         mask_id = self.mask_select if not mask_ind else mask_ind
         s_maps = fftmod(data['s_map'])[None,...].cuda()
@@ -142,7 +142,7 @@ class DPSHyperEvaluator:
             ksp_ref_bart: np.ndarray [H, W, 1, Nc] complex64 
             mask_np: np.ndarray [H, W] 
         """
-        data = torch.load(os.path.join(self.val_dir, f"sample_{idx}.pt"))
+        data = torch.load(os.path.join(self.val_dir, f"sample_{idx}.pt"), weights_only=False)
         device = torch.device('cuda')
 
         gt = data['gt'][None, None, ...].to(device)  # [1,1,H,W] complex (or real→complex upstream)

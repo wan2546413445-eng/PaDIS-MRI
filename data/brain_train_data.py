@@ -20,6 +20,7 @@ from multiprocessing import Pool
 
 from data_utils import forward_fs, normalization_const, tqdm
 
+
 parser = argparse.ArgumentParser(description="Process MRI volumes for training set.")
 
 parser.add_argument('--max_volumes', type=int, default=200, help='Maximum number of volumes to process')
@@ -51,7 +52,7 @@ elif db == "12dB":
     noise_amp = np.sqrt(100)
 else:
     raise ValueError(f"Unsupported db level: {db}")
-    
+# 从 .h5 里读 multicoil k-space；
 h5_folder = args.h5_folder
 ksp_files = [os.path.join(h5_folder, f) for f in os.listdir(h5_folder) if f.endswith(".h5")]
 if not ksp_files:
@@ -88,15 +89,16 @@ def task(i):
         ksp = np.asarray(contents['kspace'][slice_idx]).transpose(1, 2, 0)
         cimg = bart(1, 'fft -iu 3', ksp) # compare to `bart fft -iu 3 ksp cimg`
         cimg = sp.resize(cimg, [396, cimg.shape[1], cimg.shape[2]])
-
-    noise = cimg[0:30,0:30]
+    noise = cimg[0:30,0:30]#从图像角落 0:30, 0:30 取一小块区域，当作噪声估计区域，MRI 图像边角一般没有人体结构，主要是背景噪声，所以可以用来估计 coil 噪声
     noise_flat = np.reshape(noise, (-1, cimg.shape[2]))
     
     ##
     print(f"cimg shape: {cimg.shape}")
     print(f"noise_flat shape: {noise_flat.shape}")
-    ##
+    #噪声白化：把多线圈噪声变得更标准、更均匀、更接近互相独立：用 BART 的 whiten 命令，根据刚才估计出来的噪声，把 coil image 做白化处理
     cimg_white = sp.resize(bart(1, 'whiten', cimg[:,:,None,:], noise_flat[:,None,None,:]).squeeze(), [imsize, imsize, cimg.shape[2]])
+
+
     cimg_white_noisy = cimg_white + (noise_amp / np.sqrt(2))*(np.random.normal(size=cimg_white.shape) + 1j * np.random.normal(size=cimg_white.shape))
     
     ksp_white = bart(1, 'fft -u 3', cimg_white)

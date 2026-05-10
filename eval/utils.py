@@ -195,7 +195,7 @@ def post_eval_normalize(
         try:
             recon = torch.from_numpy(np.load(rf)[None, ...]).to(device)  # [1,H,W]
             sample_pt = val_dir / f"sample_{sample_idx}.pt"
-            data = torch.load(sample_pt, map_location=device)
+            data = torch.load(sample_pt, map_location=device, weights_only=False)
 
             gt = data['gt'][None, None, ...].to(device)              # [1,1,H,W] complex
             s_maps = data['s_map'][None, ...].to(device)

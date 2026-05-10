@@ -13,6 +13,7 @@ usable even if the original code is no longer available, or if the current
 version of the code is not consistent with what was originally pickled."""
 
 import sys
+import os
 import pickle
 import io
 import inspect
@@ -229,6 +230,13 @@ def _src_to_module(src):
         sys.modules[module_name] = module
         _module_to_src_dict[module] = src
         _src_to_module_dict[src] = module
+        # Some pickled modules use __file__ at import time, e.g.
+        # training/networks.py appends paths relative to __file__.
+        # Dynamically created modules do not have __file__ by default.
+        if "__file__" not in module.__dict__:
+            module.__dict__["__file__"] = os.path.join(
+                os.getcwd(), "train", "padis-mri", "training", "_persistent_module.py"
+            )
         exec(src, module.__dict__) # pylint: disable=exec-used
     return module
 

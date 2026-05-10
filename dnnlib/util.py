@@ -26,16 +26,19 @@ from pathlib import Path
 from distutils.util import strtobool
 from typing import Any, List, Tuple, Union, Optional
 
-DEFAULT_BART = '/home/rohan/bart/bart-0.9.00'
-
+DEFAULT_BART = '/mnt/SSD/wsy/bart'
 def configure_bart(path: Optional[str] = None) -> str:
     """
     Ensure BART toolbox is discoverable.
+
     Priority:
       1) explicit path arg
-      2) $BART_TOOLBOX (or legacy $TOOLBOX_PATH)
-      3) DEFAULT_BART
-    Returns the resolved path it configured.
+      2) $BART_TOOLBOX
+      3) $TOOLBOX_PATH
+      4) DEFAULT_BART
+
+    This only modifies the current Python process environment.
+    It does not modify system BART or affect other users.
     """
     bart_root = (
         path
@@ -45,13 +48,33 @@ def configure_bart(path: Optional[str] = None) -> str:
     )
     bart_root = str(Path(bart_root).expanduser().resolve())
 
-    os.environ["TOOLBOX_PATH"] = bart_root  
-    py_dir = str(Path(bart_root) / "python")
+    bart_bin = Path(bart_root) / "bart"
+    py_dir = Path(bart_root) / "python"
+
+    if not bart_bin.exists():
+        raise RuntimeError(f"BART binary not found: {bart_bin}")
+    if not py_dir.exists():
+        raise RuntimeError(f"BART python dir not found: {py_dir}")
+    if not (py_dir / "bart.py").exists():
+        raise RuntimeError(f"bart.py not found in: {py_dir}")
+    if not (py_dir / "cfl.py").exists():
+        raise RuntimeError(f"cfl.py not found in: {py_dir}")
+
+    os.environ["BART_TOOLBOX"] = bart_root
+    os.environ["TOOLBOX_PATH"] = bart_root
+    os.environ["OMP_NUM_THREADS"] = os.environ.get("OMP_NUM_THREADS", "1")
+
+    # Put user's BART first, otherwise /usr/bin/bart may be found before it.
+    path_entries = os.environ.get("PATH", "").split(os.pathsep)
+    if bart_root not in path_entries:
+        os.environ["PATH"] = bart_root + os.pathsep + os.environ.get("PATH", "")
+
+    py_dir = str(py_dir)
     if py_dir not in sys.path:
         sys.path.insert(0, py_dir)
 
     try:
-        from bart import bart 
+        from bart import bart
     except Exception as e:
         raise RuntimeError(
             "Could not import BART from TOOLBOX_PATH="
