@@ -23,6 +23,13 @@ def parse_args():
     p.add_argument("--mask_select", type=int, default=7)
     p.add_argument("--val_count", type=int, default=32)
     p.add_argument("--seed", type=int, default=123)
+    p.add_argument(
+        "--sample_indices",
+        type=str,
+        default="",
+        help="Comma-separated validation sample indices to evaluate exactly, e.g. 23,7,26,21. "
+             "If provided, --val_count random sampling is ignored."
+    )
 
     # algo selection
     p.add_argument("--algo", type=str, required=True, choices=["padis", "edm", "admm"], help="Choose reconstruction algo: padis, edm, or admm")
@@ -34,6 +41,18 @@ def parse_args():
     p.add_argument("--gpus", type=int, nargs="+", default=None, help="GPU ids (e.g. --gpus 0 1)")
     p.add_argument("--report_every", type=int, default=1)
     p.add_argument("--lam", type=float, default=1e-4, help="Lambda for TV regularization in ADMM")
+    p.add_argument(
+        "--save_intermediate",
+        action="store_true",
+        help="Save intermediate PaDIS reconstruction figures and author-style metrics during posterior sampling."
+    )
+
+    p.add_argument(
+        "--intermediate_every",
+        type=int,
+        default=10,
+        help="Save intermediate diagnostics every N outer diffusion steps; step 1 and final step are always saved."
+    )
 
     # uncertainty quantification
     p.add_argument("--run_evaluate_uncertainty", action="store_true")
@@ -86,6 +105,8 @@ def main():
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = model.to(device).eval()
 
+    sample_indices = parse_list(args.sample_indices, cast=int)
+
     opt = DPSHyperEvaluator(
         model=model,
         mask_select=args.mask_select,
@@ -94,7 +115,8 @@ def main():
         pad=args.pad,
         psize=args.psize,
         val_count=args.val_count,
-        seed=args.seed
+        seed=args.seed,
+        sample_indices=sample_indices if sample_indices else None,
     )
 
     tag = ("whole" if args.algo == "edm" else "patch") if args.algo != "admm" else "admm"
@@ -157,6 +179,8 @@ def main():
             gpus=args.gpus,
             report_every=args.report_every,
             lam=args.lam,
+            save_intermediate=args.save_intermediate,
+            intermediate_every=args.intermediate_every,
         )
         s = metrics['summary']
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")

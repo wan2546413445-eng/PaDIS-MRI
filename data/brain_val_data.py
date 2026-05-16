@@ -19,7 +19,7 @@ from data_utils import forward_fs, normalization_const, tqdm
 
 parser = argparse.ArgumentParser(description="Generate noisy MRI samples with multiple masks per R-level")
 parser.add_argument('--noise_level', type=str, default="32dB", choices=["32dB", "22dB", "12dB"], help='Noise level to add')
-parser.add_argument('--acs_size', type=int, default=20, help='Number of ACS lines to use')
+parser.add_argument('--acs_size', type=int, default=24, help='Number of ACS lines to use')
 parser.add_argument('--h5_folder', type=str, default="/data/datasets/fastmri/multicoil_val", help='Path to input folder containing .h5 files')
 parser.add_argument('--output_root', type=str, default="/data/datasets/fastmri/", help='Path to output folder to save results')
 parser.add_argument('--contrast', type=str, default="t1-flair", choices=["t1-flair", "t2"], help='Contrast to filter for')

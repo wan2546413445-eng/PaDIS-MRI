@@ -39,14 +39,15 @@ torch.set_printoptions(profile="full")
 
 class DPSHyperEvaluator:
     def __init__(self,
-                model,
-                mask_select: int,
-                val_dir: str,
-                image_size: int,
-                pad: int,
-                psize: int,
-                val_count: int = 100,
-                seed: int = 123)-> None:
+                 model,
+                 mask_select: int,
+                 val_dir: str,
+                 image_size: int,
+                 pad: int,
+                 psize: int,
+                 val_count: int = 100,
+                 seed: int = 123,
+                 sample_indices=None) -> None:
         """
         model: trained diffusion model (ema)
         val_dir: directory containing validation .pt files
@@ -72,13 +73,45 @@ class DPSHyperEvaluator:
         max_files = len(sample_files)
         print(f"Found {max_files} validation samples in {val_dir}")
 
-        val_count = max_files if val_count is None else min(val_count, max_files)
+        if sample_indices is not None and len(sample_indices) > 0:
+            # Explicit sample selection mode
+            sample_indices = sorted(set(int(idx) for idx in sample_indices))
 
-        print(f"Using {val_count} validation samples")
-        
-        all_indices = list(range(max_files))
-        self.val_indices = sorted(random.sample(all_indices, val_count))
-        print(f"Sample indices: {self.val_indices}")
+            invalid_indices = [
+                idx for idx in sample_indices
+                if idx < 0 or idx >= max_files
+            ]
+            if invalid_indices:
+                raise ValueError(
+                    f"Invalid sample_indices {invalid_indices}. "
+                    f"Available index range is [0, {max_files - 1}]."
+                )
+
+            missing_files = [
+                idx for idx in sample_indices
+                if not os.path.exists(os.path.join(val_dir, f"sample_{idx}.pt"))
+            ]
+            if missing_files:
+                raise FileNotFoundError(
+                    f"Missing validation files for sample indices: {missing_files}"
+                )
+
+            self.val_indices = sample_indices
+            print(
+                f"Using explicitly specified validation samples: "
+                f"{len(self.val_indices)}"
+            )
+            print(f"Sample indices: {self.val_indices}")
+
+        else:
+            # Original random-sampling mode
+            val_count = max_files if val_count is None else min(val_count, max_files)
+
+            print(f"Using {val_count} validation samples")
+
+            all_indices = list(range(max_files))
+            self.val_indices = sorted(random.sample(all_indices, val_count))
+            print(f"Sample indices: {self.val_indices}")
         self.val_dir = val_dir
         self.R_levels = list(range(2,11))
         
@@ -246,18 +279,21 @@ class DPSHyperEvaluator:
                                         )
 
             return recon, a, b, c, d, e, f
-    
 
-    def dps2_wrapper(self, 
-                     inverse_op: InverseOperator, 
-                     measurement: torch.Tensor, 
-                     clean: torch.Tensor, 
-                     zeta: float, 
-                     pad: int, 
-                     psize: int, 
-                     num_steps: int, 
-                     save_dir: str=None, 
-                     tag: str=None)-> Tuple[torch.Tensor, float, float, float, float, float, float]:
+    def dps2_wrapper(
+            self,
+            inverse_op,
+            measurement,
+            clean,
+            zeta,
+            pad,
+            psize,
+            num_steps,
+            save_dir=None,
+            tag=None,
+            save_intermediate: bool = False,
+            intermediate_every: int = 10,
+    ):
         """
         Args:
             inverse_op: InverseOperator instance
@@ -293,21 +329,23 @@ class DPSHyperEvaluator:
             mag_clip = np.clip(mag, 0, 1)
             return mag_clip, 0, 0, 0, 0, 0, 0
         
-        else:    
+        else:
             recon, a, b, c, d, e, f = dps2(
-                                        net=self.model,
-                                        latents=self.latents,
-                                        latents_pos=self.latents_pos,
-                                        inverseop=inverse_op,
-                                        measurement=measurement,
-                                        clean=clean,
-                                        pad=pad,
-                                        psize=psize,
-                                        zeta=zeta,
-                                        num_steps=num_steps,
-                                        save_dir=save_dir,
-                                        tag=tag
-                                    )
+                net=self.model,
+                latents=self.latents,
+                latents_pos=self.latents_pos,
+                inverseop=inverse_op,
+                measurement=measurement,
+                clean=clean,
+                pad=pad,
+                psize=psize,
+                zeta=zeta,
+                num_steps=num_steps,
+                save_dir=save_dir,
+                tag=tag,
+                save_intermediate=save_intermediate,
+                intermediate_every=intermediate_every,
+            )
             return recon, a, b, c, d, e, f
 
     def admm_tv_wrapper(self, 
@@ -754,17 +792,19 @@ class DPSHyperEvaluator:
         print("Done with the uncertainty map generation.")
 
     def evaluate(
-        self,
-        zeta: float,
-        num_steps: int,
-        pad: int,
-        psize: int,
-        algo: str,
-        save_dir: str,
-        tag: str,
-        gpus: list[int] = None,
-        report_every: int = 10,
-        lam: float = 1e-4, 
+            self,
+            zeta: float,
+            num_steps: int,
+            pad: int,
+            psize: int,
+            algo: str,
+            save_dir: str,
+            tag: str,
+            gpus: list[int] = None,
+            report_every: int = 10,
+            lam: float = 1e-4,
+            save_intermediate: bool = False,
+            intermediate_every: int = 10,
     ):
         """
         Runs PaDIS-MRI on all 100 validation volumes, saves side-by-side figures,
@@ -808,10 +848,20 @@ class DPSHyperEvaluator:
                     gt = gt.cuda(gpu_id)
                     invop.maps = invop.maps.cuda(gpu_id)
                     invop.mask = invop.mask.cuda(gpu_id)
-                
+
                 if algo.lower() == "padis":
                     recon, _, recon_psnr, _, recon_ssim, _, recon_nrmse = self.dps2_wrapper(
-                        invop, meas, gt, zeta, pad, psize, num_steps, save_dir, tag_label
+                        inverse_op=invop,
+                        measurement=meas,
+                        clean=gt,
+                        zeta=zeta,
+                        pad=pad,
+                        psize=psize,
+                        num_steps=num_steps,
+                        save_dir=save_dir,
+                        tag=tag_label,
+                        save_intermediate=save_intermediate,
+                        intermediate_every=intermediate_every,
                     )
                 elif algo.lower() == "edm":
                     recon, _, recon_psnr, _, recon_ssim, _, recon_nrmse = self.dps_edm_wrapper(
