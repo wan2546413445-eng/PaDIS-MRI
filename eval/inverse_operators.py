@@ -15,7 +15,7 @@ class MRI_utils:
 
     def forward(self,x: torch.Tensor) -> torch.Tensor:
         x_cplx = torch.view_as_complex(x.permute(0,-2,-1,1).contiguous())[:,None,...]
-            
+         #输入[B, H, W, 2]；
         coil_imgs = self.maps*x_cplx
         coil_ksp = fft(coil_imgs)
         sampled_ksp = self.mask*coil_ksp

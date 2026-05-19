@@ -1,3 +1,4 @@
+
 import numpy as np
 import torch
 import tqdm
@@ -57,7 +58,6 @@ def dps2(
     tag: Optional[str] = None,
     save_intermediate: bool = False,
     intermediate_every: int = 10,
-    zeta_schedule=None,
 ) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
     """
     PaDIS (patch DPS) MRI reconstruction with 10 inner sub-steps per sigma
@@ -96,13 +96,6 @@ def dps2(
         os.makedirs(intermediate_dir, exist_ok=True)
         print(f"[intermediate] Enabled: {intermediate_dir} | every={intermediate_every}")
 
-    print(f"[PaDIS Budget] steps={num_steps}, inner_loops={inner_loops}, total_updates={num_steps * inner_loops}")
-
-    if zeta_schedule is None:
-        print(f"[PaDIS Posterior Scale] mode=fixed, zeta={zeta}")
-    else:
-        print(f"[PaDIS Posterior Scale] mode=piecewise3, schedule={zeta_schedule}")
-
     # ------------------------------------------------------------------
     # Main posterior sampling loop
     # ------------------------------------------------------------------
@@ -112,17 +105,6 @@ def dps2(
     ):
         t_cur = t_cur.float()
         alpha = 0.5 * t_cur ** 2
-
-        if zeta_schedule is None:
-            zeta_cur = zeta
-        else:
-            progress = i / max(num_steps - 1, 1)
-            if progress < 1.0 / 3.0:
-                zeta_cur = zeta_schedule[0]
-            elif progress < 2.0 / 3.0:
-                zeta_cur = zeta_schedule[1]
-            else:
-                zeta_cur = zeta_schedule[2]
 
         for j in range(inner_loops):
             indices = getIndices(spaced, patches, pad, psize)
@@ -163,7 +145,7 @@ def dps2(
             likelihood_grad = torch.autograd.grad(outputs=sse, inputs=x)[0]
 
             # Measurement-consistency update
-            x = x - (zeta_cur / torch.sqrt(sse_ind)[:, None, None, None]) * likelihood_grad
+            x = x - (zeta / torch.sqrt(sse_ind)[:, None, None, None]) * likelihood_grad
 
             # Diffusion step
             if i < num_steps - 1:
@@ -264,7 +246,7 @@ def dps_uncond(
     if pad>0:
         x = F.pad(x, (pad, pad, pad, pad), 'constant', 0)
 
-    #--- schedule ---
+    #--- schedule ---大到小noise非线性递减
     idx = torch.arange(num_steps, dtype=torch.float64, device=device)
     t_steps = (sigma_max**(1/rho) +
                idx/(num_steps-1)*(sigma_min**(1/rho)-sigma_max**(1/rho))

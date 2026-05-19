@@ -199,7 +199,7 @@ class ImageFolderDatasetX(Dataset):
                                pad_width=((0, 0), (0, 0), (pad, pad), (pad, pad)), 
                                mode="constant", 
                                constant_values=0)
-    
+    #输入为384*384，且设置的PAD是96则最终的padded image是576*576
         self.num_examples = self.all_data.shape[0]  # Number of examples.
         self.channels = self.all_data.shape[1]      # Should be 2 (real + imaginary).
         self.height = self.all_data.shape[2]       # Padded height.

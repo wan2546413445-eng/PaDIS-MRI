@@ -69,7 +69,7 @@ class Patch_EDMLoss:
         images_pos = torch.cat((x_pos, y_pos), dim=1)
         #print(torch.amax(images_pos))
         return padded, images_pos
-
+#训练逻辑
     def __call__(self, net, images, patch_size, resolution, labels=None, augment_pipe=None):
         images, images_pos = self.pachify(images, patch_size)
 

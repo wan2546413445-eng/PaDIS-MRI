@@ -246,7 +246,7 @@ def dps_uncond(
     if pad>0:
         x = F.pad(x, (pad, pad, pad, pad), 'constant', 0)
 
-    #--- schedule ---
+    #--- schedule ---大到小noise非线性递减
     idx = torch.arange(num_steps, dtype=torch.float64, device=device)
     t_steps = (sigma_max**(1/rho) +
                idx/(num_steps-1)*(sigma_min**(1/rho)-sigma_max**(1/rho))

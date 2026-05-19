@@ -59,7 +59,8 @@ def parse_args():
     p.add_argument("--init_mode", choices=["bart_source", "precond_mean", "adjoint"], default="adjoint")
     p.add_argument("--prior_scale", type=float, default=1.0)
     p.add_argument("--likelihood_scale", type=float, default=1.0)
-    p.add_argument("--noise_scale", type=float, default=0.0)
+    p.add_argument("--init_noise_scale", type=float, default=0.0)
+    p.add_argument("--step_noise_scale", type=float, default=0.0)
     p.add_argument("--freeze_patch_indices", action="store_true")
     p.add_argument("--save_dir", required=True)
     p.add_argument("--seed", type=int, default=123)
@@ -98,7 +99,8 @@ def main():
         init_mode=args.init_mode,
         prior_scale=args.prior_scale,
         likelihood_scale=args.likelihood_scale,
-        noise_scale=args.noise_scale,
+        init_noise_scale=args.init_noise_scale,
+        step_noise_scale=args.step_noise_scale,
         image_size=args.image_size,
         pad=args.pad,
         psize=args.psize,

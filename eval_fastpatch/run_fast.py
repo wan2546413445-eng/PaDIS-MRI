@@ -9,9 +9,8 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import dnnlib
 
-from evaluator_zeta import DPSHyperEvaluator
+from evaluator import DPSHyperEvaluator
 from utils import post_eval_normalize
-
 
 def parse_args():
     p = argparse.ArgumentParser(description="DPS/EDM/ADMM experiment runner")
@@ -33,28 +32,16 @@ def parse_args():
     )
 
     # algo selection
-    p.add_argument(
-        "--algo",
-        type=str,
-        required=True,
-        choices=["padis", "edm", "admm"],
-        help="Choose reconstruction algo: padis, edm, or admm"
-    )
+    p.add_argument("--algo", type=str, required=True, choices=["padis", "edm", "admm"], help="Choose reconstruction algo: padis, edm, or admm")
 
     # hyperparams
     p.add_argument("--zeta", type=float, default=3.0, help="Chosen zeta value (required for padis/edm calls)")
-    p.add_argument(
-        "--zeta_schedule",
-        type=str,
-        default="",
-        help="Optional 3-stage comma-separated zeta schedule, e.g. 2.0,3.0,4.0. Empty means fixed --zeta."
-    )
     p.add_argument("--steps", type=int, default=104, help="Number of steps (or ADMM iters)")
     p.add_argument(
         "--inner_loops",
         type=int,
         default=10,
-        help="Number of inner posterior update loops per diffusion step for PaDIS."
+        help="Number of posterior update loops per outer diffusion step for PaDIS dps2."
     )
     p.add_argument("--save_dir", type=str, required=True, help="Where to write outputs")
     p.add_argument("--gpus", type=int, nargs="+", default=None, help="GPU ids (e.g. --gpus 0 1)")
@@ -65,6 +52,7 @@ def parse_args():
         action="store_true",
         help="Save intermediate PaDIS reconstruction figures and author-style metrics during posterior sampling."
     )
+
     p.add_argument(
         "--intermediate_every",
         type=int,
@@ -74,12 +62,7 @@ def parse_args():
 
     # uncertainty quantification
     p.add_argument("--run_evaluate_uncertainty", action="store_true")
-    p.add_argument(
-        "--uncertainty_mask_list",
-        type=str,
-        default="0,1,2,3,4,5,6,7,8,9",
-        help="Comma-separated seeds for uncertainty (interpreted as seeds for padis/edm, mask ids for admm)"
-    )
+    p.add_argument("--uncertainty_mask_list", type=str, default="0,1,2,3,4,5,6,7,8,9", help="Comma-separated seeds for uncertainty (interpreted as seeds for padis/edm, mask ids for admm)")
 
     # patch size sweep
     p.add_argument("--run_sweep_patch_sizes", action="store_true")
@@ -114,25 +97,8 @@ def parse_list(csv_str, cast=int):
     return [cast(x.strip()) for x in csv_str.split(",") if x.strip() != ""]
 
 
-def parse_zeta_schedule(schedule_str):
-    if schedule_str is None or schedule_str.strip() == "":
-        return None
-
-    schedule = [float(x.strip()) for x in schedule_str.split(",") if x.strip() != ""]
-    if len(schedule) != 3:
-        raise ValueError("--zeta_schedule must contain exactly 3 comma-separated float values")
-    return schedule
-
-
 def main():
     args = parse_args()
-    args.zeta_schedule = parse_zeta_schedule(args.zeta_schedule)
-
-    if args.zeta_schedule is None:
-        print(f"[PaDIS ZetaSchedule] enabled=False, fixed_zeta={args.zeta}")
-    else:
-        print(f"[PaDIS ZetaSchedule] enabled=True, schedule={args.zeta_schedule}")
-
     os.makedirs(args.save_dir, exist_ok=True)
 
     model = None
@@ -178,9 +144,9 @@ def main():
         raise ValueError("--zeta is required for padis/edm runs (or run --run_hparam_search)")
 
     if args.run_evaluate_uncertainty:
-        seed_list = parse_list(args.uncertainty_mask_list, cast=int)
+        mask_list = parse_list(args.uncertainty_mask_list, cast=int)
         opt.evaluate_uncertainty(
-            seed_list=seed_list,
+            mask_list=mask_list,
             zeta=args.zeta if args.algo in ("padis", "edm") else 0.0,
             num_steps=args.steps,
             pad=args.pad,
@@ -206,11 +172,17 @@ def main():
             tag="patch_sweep",
             report_every=args.report_every,
         )
-
+    if args.algo == "padis":
+        print(
+            f"[PaDIS Budget] steps={args.steps}, "
+            f"inner_loops={args.inner_loops}, "
+            f"total_updates={args.steps * args.inner_loops}"
+        )
     if args.run_evaluate:
         metrics = opt.evaluate(
             zeta=args.zeta if args.algo in ("padis", "edm") else 0.0,
             num_steps=args.steps,
+            inner_loops=args.inner_loops,
             pad=args.pad,
             psize=args.psize,
             algo=args.algo,
@@ -221,8 +193,6 @@ def main():
             lam=args.lam,
             save_intermediate=args.save_intermediate,
             intermediate_every=args.intermediate_every,
-            inner_loops=args.inner_loops,
-            zeta_schedule=args.zeta_schedule,
         )
         s = metrics['summary']
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")
@@ -256,7 +226,8 @@ def main():
             device='cuda' if torch.cuda.is_available() else 'cpu'
         )
 
-    # Compute final metrics and plots.
+
+    # Compute final metrics and plots. 
     recon_dir = os.path.join(args.save_dir, "evaluate", "recons")
     plot_dir = os.path.join(args.save_dir, "evaluate", "comp_plots")
     try:
@@ -269,7 +240,6 @@ def main():
         )
     except Exception as e:
         print(f"[post_eval_normalize] Skipped due to error: {e}")
-
 
 if __name__ == "__main__":
     main()

@@ -56,7 +56,11 @@ class PULASamplerConfig:
     # Diagnostics / ablations.
     prior_scale: float = 1.0
     likelihood_scale: float = 1.0
-    noise_scale: float = 1.0
+
+    # Separate stochasticity in BART-style posterior initialization
+    # from stochasticity injected at each pULA update step.
+    init_noise_scale: float = 0.0
+    step_noise_scale: float = 0.0
 
     # PaDIS patch geometry.
     image_size: int = 384
@@ -197,11 +201,11 @@ def _bart_source_init(
     rhs = step * _embed_fov(AHy_fov, cfg.pad)
     x0 = torch.zeros_like(rhs)
 
-    if cfg.noise_scale > 0:
+    if cfg.init_noise_scale > 0:
         AHn1 = _measurement_noise_adjoint_pad(inverseop, measurement, cfg.pad)
         n2 = _complex_randn_like(rhs)
-        rhs = rhs + cfg.noise_scale * math.sqrt(step) * AHn1 + cfg.noise_scale * math.sqrt(step * diag) * n2
-        x0 = x0 + cfg.noise_scale * math.sqrt(step / diag) * n2
+        rhs = rhs + cfg.init_noise_scale * math.sqrt(step) * AHn1 + cfg.init_noise_scale * math.sqrt(step * diag) * n2
+        x0 = x0 + cfg.init_noise_scale * math.sqrt(step / diag) * n2
 
     out = conjugate_gradient(op, rhs, x0=x0, max_iter=cfg.cg_iters, tol=cfg.cg_tol)
     return 0.5 * out.x.detach(), {
@@ -262,6 +266,13 @@ def padis_pula_reconstruct(
         "score_norm": [],
         "likelihood_norm": [],
         "cg_residual_mean": [],
+        "precond_x_norm": [],
+        "prior_disp_norm": [],
+        "likelihood_disp_norm": [],
+        "noise_ahn1_norm": [],
+        "noise_n2_rhs_norm": [],
+        "rhs_norm": [],
+        "x_warm_norm": [],
     }
 
     iterator = enumerate(sigmas)
@@ -281,14 +292,24 @@ def padis_pula_reconstruct(
             # Structural pULA update.  The important thing is that the PaDIS prior
             # enters only through `prior_score`; no DPS denoiser-Jacobian term is used.
             prior_disp = cfg.gamma * cfg.prior_scale * prior_score
-            rhs = precond_op(x_pad) + cfg.gamma * cfg.likelihood_scale * likelihood_grad + prior_disp
+            precond_x = precond_op(x_pad)
+            likelihood_disp = cfg.gamma * cfg.likelihood_scale * likelihood_grad
+
+            rhs = precond_x + likelihood_disp + prior_disp
             x_warm = x_pad + prior_disp / diag
 
-            if cfg.noise_scale > 0:
+            noise_ahn1 = torch.zeros_like(x_pad)
+            noise_n2_rhs = torch.zeros_like(x_pad)
+
+            if cfg.step_noise_scale > 0:
                 AHn1 = _measurement_noise_adjoint_pad(inverseop, measurement, cfg.pad)
                 n2 = _complex_randn_like(x_pad)
-                rhs = rhs + cfg.noise_scale * math.sqrt(cfg.gamma) * AHn1 + cfg.noise_scale * math.sqrt(cfg.gamma * diag) * n2
-                x_warm = x_warm + cfg.noise_scale * math.sqrt(cfg.gamma / diag) * n2
+
+                noise_ahn1 = cfg.step_noise_scale * math.sqrt(cfg.gamma) * AHn1
+                noise_n2_rhs = cfg.step_noise_scale * math.sqrt(cfg.gamma * diag) * n2
+
+                rhs = rhs + noise_ahn1 + noise_n2_rhs
+                x_warm = x_warm + cfg.step_noise_scale * math.sqrt(cfg.gamma / diag) * n2
 
             out = conjugate_gradient(
                 precond_op,
@@ -316,10 +337,25 @@ def padis_pula_reconstruct(
                         f"sigma={sigma_f:.6g}, norm={float(state_norm):.4e}"
                     )
 
+            precond_x_norm = torch.linalg.vector_norm(precond_x.reshape(b, -1), dim=1).mean()
+            prior_disp_norm = torch.linalg.vector_norm(prior_disp.reshape(b, -1), dim=1).mean()
+            likelihood_disp_norm = torch.linalg.vector_norm(likelihood_disp.reshape(b, -1), dim=1).mean()
+            noise_ahn1_norm = torch.linalg.vector_norm(noise_ahn1.reshape(b, -1), dim=1).mean()
+            noise_n2_rhs_norm = torch.linalg.vector_norm(noise_n2_rhs.reshape(b, -1), dim=1).mean()
+            rhs_norm = torch.linalg.vector_norm(rhs.reshape(b, -1), dim=1).mean()
+            x_warm_norm = torch.linalg.vector_norm(x_warm.reshape(b, -1), dim=1).mean()
+
             diagnostics["state_norm"].append(float(state_norm.detach().cpu()))
             diagnostics["score_norm"].append(float(score_norm.detach().cpu()))
             diagnostics["likelihood_norm"].append(float(like_norm.detach().cpu()))
             diagnostics["cg_residual_mean"].append(float(cg_res.detach().cpu()))
+            diagnostics["precond_x_norm"].append(float(precond_x_norm.detach().cpu()))
+            diagnostics["prior_disp_norm"].append(float(prior_disp_norm.detach().cpu()))
+            diagnostics["likelihood_disp_norm"].append(float(likelihood_disp_norm.detach().cpu()))
+            diagnostics["noise_ahn1_norm"].append(float(noise_ahn1_norm.detach().cpu()))
+            diagnostics["noise_n2_rhs_norm"].append(float(noise_n2_rhs_norm.detach().cpu()))
+            diagnostics["rhs_norm"].append(float(rhs_norm.detach().cpu()))
+            diagnostics["x_warm_norm"].append(float(x_warm_norm.detach().cpu()))
 
         if cfg.verbose and ((step_idx + 1) % max(cfg.log_every, 1) == 0):
             msg = (
@@ -327,6 +363,8 @@ def padis_pula_reconstruct(
                 f"sigma={sigma_f:.4g} "
                 f"state={diagnostics['state_norm'][-1]:.4e} "
                 f"score={diagnostics['score_norm'][-1]:.4e} "
+                f"rhs={diagnostics['rhs_norm'][-1]:.4e} "
+                f"n2rhs={diagnostics['noise_n2_rhs_norm'][-1]:.4e} "
                 f"cg={diagnostics['cg_residual_mean'][-1]:.4e}"
             )
             try:
