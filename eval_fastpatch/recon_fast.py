@@ -15,9 +15,9 @@ configure_bart()
 
 from bart import bart
 
-from inverse_operators import *
-from denoise_padding import denoisedFromPatches, getIndices
-from utils import fftmod, makeFigures
+from eval.inverse_operators import *
+from denoise_padding_fast import denoisedFromPatches, getIndices
+from eval.utils import fftmod, makeFigures
 
 
 def _ve_base_schedule(

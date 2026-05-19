@@ -27,9 +27,9 @@ from dnnlib.util import configure_bart
 configure_bart()
 from bart import bart
 
-from inverse_operators import *
-from utils import fftmod, makeFigures
-from recon import dps2, dps_uncond, dps_edm, dps_uncond_edm
+from eval.inverse_operators import *
+from eval.utils import fftmod, makeFigures
+from recon_fast import dps2, dps_uncond, dps_edm, dps_uncond_edm
 
 random.seed(123)
 torch.manual_seed(123)

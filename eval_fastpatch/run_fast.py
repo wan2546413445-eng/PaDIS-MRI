@@ -9,8 +9,8 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import dnnlib
 
-from evaluator import DPSHyperEvaluator
-from utils import post_eval_normalize
+from evaluator_fast import DPSHyperEvaluator
+from eval.utils import post_eval_normalize
 
 def parse_args():
     p = argparse.ArgumentParser(description="DPS/EDM/ADMM experiment runner")
