@@ -173,6 +173,9 @@ def getIndicesMultiScale(image_size, pad, psize, freezeindex=False):
         starts = list(range(first_start, last_start + 1, psize))
         if len(starts) == 0 or starts[-1] != last_start:
             starts.append(last_start)
+        max_start = canvas_size - psize
+        starts = [min(max(s, 0), max_start) for s in starts]
+        starts = list(dict.fromkeys(starts))
         return starts
 
     h_starts = _axis_starts(offset_h)
