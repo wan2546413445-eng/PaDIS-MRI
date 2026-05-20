@@ -145,6 +145,51 @@ def getIndices(spaced, patches, pad, psize, freezeindex=False):
 
     _profile_end("get_indices_ms", _t_profile)
     return indices
+
+
+def getIndicesMultiScale(image_size, pad, psize, freezeindex=False):
+    """
+    多尺度安全索引生成：
+    - padded canvas: image_size + 2 * pad
+    - 中心真实图像区域: [pad, pad + image_size)
+    - 返回格式与 getIndices 一致: [h_start, h_end, w_start, w_end]
+    """
+    canvas_size = int(image_size + 2 * pad)
+    image_size = int(image_size)
+    pad = int(pad)
+    psize = int(psize)
+
+    if freezeindex:
+        offset_h = 0
+        offset_w = 0
+    else:
+        offset_h = random.randint(0, psize - 1)
+        offset_w = random.randint(0, psize - 1)
+
+    def _axis_starts(offset):
+        first_start = pad - psize + offset
+        last_start = pad + image_size - psize + offset
+
+        starts = list(range(first_start, last_start + 1, psize))
+        if len(starts) == 0 or starts[-1] != last_start:
+            starts.append(last_start)
+        return starts
+
+    h_starts = _axis_starts(offset_h)
+    w_starts = _axis_starts(offset_w)
+
+    indices = []
+    for h_start in h_starts:
+        h_end = h_start + psize
+        for w_start in w_starts:
+            w_end = w_start + psize
+            assert 0 <= h_start < h_end <= canvas_size
+            assert 0 <= w_start < w_end <= canvas_size
+            indices.append([h_start, h_end, w_start, w_end])
+
+    return indices
+
+
 def denoisedFromPatches(
     net,
     x,
@@ -156,7 +201,8 @@ def denoisedFromPatches(
     t_goal=-1,
     avg=1,
     spaced=[],
-    wrong=False
+    wrong=False,
+    crop_pad=None
 ):
     """
     与原始 denoisedFromPatches 完全一致；
@@ -185,7 +231,10 @@ def denoisedFromPatches(
     N = len(x_hat[0, 0, 0, :])
     psize = indices[0][1] - indices[0][0]
     patches = len(indices)
-    pad = int((N - np.sqrt(patches) * psize))
+    if crop_pad is None:
+        pad = int((N - np.sqrt(patches) * psize))
+    else:
+        pad = int(crop_pad)
 
     _profile_end("prepare_meta_clone_ms", _t_prepare)
 
