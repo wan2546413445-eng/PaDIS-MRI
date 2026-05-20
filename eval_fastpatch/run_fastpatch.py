@@ -1,5 +1,17 @@
 import os
 import sys
+import csv
+import time
+import atexit
+from collections import defaultdict
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+EVAL_DIR = os.path.join(REPO_ROOT, "eval")
+
+sys.path.insert(0, CURRENT_DIR)
+sys.path.insert(0, EVAL_DIR)
+sys.path.insert(0, REPO_ROOT)
 import json
 import argparse
 import pickle

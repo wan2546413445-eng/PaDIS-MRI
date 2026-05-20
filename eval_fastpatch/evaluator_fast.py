@@ -18,7 +18,8 @@ from skimage.metrics import peak_signal_noise_ratio as psnr, structural_similari
 from numpy.fft import fftshift
 import matplotlib.pyplot as plt
 from typing import List, Tuple
-
+LOAD_DTYPE_DEBUG = os.environ.get("PADIS_FASTPATCH_LOAD_DTYPE_DEBUG", "0") == "1"
+_LOAD_DTYPE_DEBUG_PRINTED = False
 padis_path = os.path.join(os.path.dirname(__file__), '..')
 sys.path.insert(0, padis_path)
 import dnnlib
@@ -36,7 +37,48 @@ torch.manual_seed(123)
 np.random.seed(123)
 torch.set_printoptions(profile="full")
 
+def _maybe_print_load_dtype_debug(
+    *,
+    raw_gt,
+    raw_s_map,
+    raw_ksp,
+    raw_mask,
+    gt,
+    s_maps,
+    fs_ksp,
+    mask,
+    ksp,
+):
+    global _LOAD_DTYPE_DEBUG_PRINTED
 
+    if not LOAD_DTYPE_DEBUG or _LOAD_DTYPE_DEBUG_PRINTED:
+        return
+
+    def line(name, tensor):
+        return (
+            f"{name:28s}: "
+            f"dtype={str(tensor.dtype):18s} | "
+            f"shape={str(tuple(tensor.shape)):24s} | "
+            f"device={str(tensor.device) if tensor.is_cuda else 'cpu'}"
+        )
+
+    print("\n" + "=" * 104)
+    print("[Evaluator Load DType Debug | first sample only]")
+    print("=" * 104)
+
+    print(line("raw data['gt']", raw_gt))
+    print(line("raw data['s_map']", raw_s_map))
+    print(line("raw data['ksp']", raw_ksp))
+    print(line("raw data[mask_str]", raw_mask))
+    print(line("gt after cuda", gt))
+    print(line("s_maps after fftmod", s_maps))
+    print(line("fs_ksp after fftmod", fs_ksp))
+    print(line("mask after cuda", mask))
+    print(line("ksp = mask * fs_ksp", ksp))
+
+    print("=" * 104 + "\n")
+
+    _LOAD_DTYPE_DEBUG_PRINTED = True
 class DPSHyperEvaluator:
     def __init__(self,
                  model,
@@ -134,23 +176,40 @@ class DPSHyperEvaluator:
             mri_inf_utils: MRI_utils (for computing adjoint)
         """
         data = torch.load(os.path.join(self.val_dir, f"sample_{idx}.pt"), weights_only=False)
-        gt = data['gt'][None,None,...].cuda()
+
+        raw_gt = data['gt']
+        raw_s_map = data['s_map']
+        raw_ksp = data['ksp']
+
+        gt = raw_gt[None, None, ...].cuda()
         mask_id = self.mask_select if not mask_ind else mask_ind
-        s_maps = fftmod(data['s_map'])[None,...].cuda()
-        fs_ksp = fftmod(data['ksp'])[None,...].cuda()
+        s_maps = fftmod(raw_s_map)[None, ...].cuda()
+        fs_ksp = fftmod(raw_ksp)[None, ...].cuda()
 
         mask_str = f"mask_{mask_id}"
         print(f"mask_select: {self.mask_select}")
-        
+
         if seed_ind is not None:
             masks_tensor = data['masks']
             r_idx = self.R_levels.index(self.mask_select)
             mask2d = masks_tensor[r_idx, seed_ind]
+            raw_mask = mask2d
             mask = mask2d.unsqueeze(0).cuda()
         else:
-            mask = data[mask_str][None,...].cuda()
-            
+            raw_mask = data[mask_str]
+            mask = raw_mask[None, ...].cuda()
         ksp = mask * fs_ksp
+        _maybe_print_load_dtype_debug(
+            raw_gt=raw_gt,
+            raw_s_map=raw_s_map,
+            raw_ksp=raw_ksp,
+            raw_mask=raw_mask,
+            gt=gt,
+            s_maps=s_maps,
+            fs_ksp=fs_ksp,
+            mask=mask,
+            ksp=ksp,
+        )
         mri_inf_utils = MRI_utils(maps=s_maps, mask=mask)
         
         return ksp, gt, mri_inf_utils
