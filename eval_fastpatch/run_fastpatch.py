@@ -32,6 +32,25 @@ def parse_args():
     p.add_argument("--image_size", type=int, default=384)
     p.add_argument("--pad", type=int, default=64)
     p.add_argument("--psize", type=int, default=64)
+    p.add_argument(
+        "--patch_schedule",
+        type=str,
+        default="fixed",
+        choices=["fixed", "train_random", "coarse_to_fine"],
+        help="Patch sampling schedule for PaDIS posterior inference."
+    )
+    p.add_argument(
+        "--multiscale_patch_sizes",
+        type=str,
+        default="16,32,64",
+        help="Comma-separated patch sizes used when patch_schedule is not fixed."
+    )
+    p.add_argument(
+        "--multiscale_patch_probs",
+        type=str,
+        default="0.2,0.3,0.5",
+        help="Comma-separated patch probabilities for train_random schedule."
+    )
     p.add_argument("--mask_select", type=int, default=7)
     p.add_argument("--val_count", type=int, default=32)
     p.add_argument("--seed", type=int, default=123)
@@ -124,6 +143,8 @@ def main():
         model = model.to(device).eval()
 
     sample_indices = parse_list(args.sample_indices, cast=int)
+    multiscale_patch_sizes = parse_list(args.multiscale_patch_sizes, cast=int)
+    multiscale_patch_probs = parse_list(args.multiscale_patch_probs, cast=float)
 
     opt = DPSHyperEvaluator(
         model=model,
@@ -190,6 +211,12 @@ def main():
             f"inner_loops={args.inner_loops}, "
             f"total_updates={args.steps * args.inner_loops}"
         )
+        print(f"[Patch Schedule] {args.patch_schedule}")
+        if args.patch_schedule == "train_random":
+            print(f"[Patch Schedule] sizes={multiscale_patch_sizes}")
+            print(f"[Patch Schedule] probs={multiscale_patch_probs}")
+        elif args.patch_schedule == "coarse_to_fine":
+            print(f"[Patch Schedule] sizes={multiscale_patch_sizes}")
     if args.run_evaluate:
         metrics = opt.evaluate(
             zeta=args.zeta if args.algo in ("padis", "edm") else 0.0,
@@ -205,6 +232,9 @@ def main():
             lam=args.lam,
             save_intermediate=args.save_intermediate,
             intermediate_every=args.intermediate_every,
+            patch_schedule=args.patch_schedule,
+            multiscale_patch_sizes=multiscale_patch_sizes,
+            multiscale_patch_probs=multiscale_patch_probs,
         )
         s = metrics['summary']
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")
@@ -239,7 +269,7 @@ def main():
         )
 
 
-    # Compute final metrics and plots. 
+    # Compute final metrics and plots.
     recon_dir = os.path.join(args.save_dir, "evaluate", "recons")
     plot_dir = os.path.join(args.save_dir, "evaluate", "comp_plots")
     try:
