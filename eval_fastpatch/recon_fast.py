@@ -277,6 +277,9 @@ def _select_multiscale_patch_size(
     outer_step,
     num_steps,
 ):
+    if patch_schedule == "fixed":
+        raise RuntimeError("_select_multiscale_patch_size should not be called when patch_schedule='fixed'.")
+
     if patch_schedule == "train_random":
         return int(np.random.choice(np.array(patch_sizes), p=np.array(patch_probs, dtype=np.float64)))
 
@@ -343,6 +346,7 @@ def dps2(
     w = latents.shape[-1]
     patches = w // psize + 1
     spaced = np.linspace(0, (patches - 1) * psize, patches, dtype=int)
+    patch_size_counter = {}
     if patch_schedule == "train_random":
         if multiscale_patch_sizes is None:
             multiscale_patch_sizes = [16, 32, 64]
@@ -355,8 +359,6 @@ def dps2(
     elif patch_schedule == "coarse_to_fine":
         if multiscale_patch_sizes is None:
             multiscale_patch_sizes = [16, 32, 64]
-        if len(multiscale_patch_sizes) == 0:
-            raise ValueError("multiscale_patch_sizes must be non-empty.")
         normalized_patch_probs = None
     elif patch_schedule == "fixed":
         normalized_patch_probs = None
@@ -377,6 +379,19 @@ def dps2(
     )
 
     _dps2_profile_end("dps2_init_ms", _t_dps2_init)
+    if patch_schedule == "fixed":
+        print(f"[Patch Sampling] fixed psize={psize}")
+    elif patch_schedule == "train_random":
+        print(
+            f"[Patch Sampling] schedule=train_random, "
+            f"sizes={multiscale_patch_sizes}, "
+            f"probs={normalized_patch_probs}"
+        )
+    elif patch_schedule == "coarse_to_fine":
+        print(
+            f"[Patch Sampling] schedule=coarse_to_fine, "
+            f"sizes={multiscale_patch_sizes}"
+        )
     noisypsnr = denoisedpsnr = noisyssim = denoisedssim = noisynrmse = denoisednrmse = 0.0
 
     # ------------------------------------------------------------------
@@ -411,6 +426,7 @@ def dps2(
             _t_prepare = _dps2_profile_start()
 
             if patch_schedule == "fixed":
+                cur_psize = psize
                 indices = getIndices(spaced, patches, pad, psize)
                 crop_pad_arg = None
             else:
@@ -428,6 +444,7 @@ def dps2(
                     freezeindex=False,
                 )
                 crop_pad_arg = pad
+            patch_size_counter[cur_psize] = patch_size_counter.get(cur_psize, 0) + 1
             x = x.detach().requires_grad_(True)
             x_before_update = x
 
@@ -618,6 +635,13 @@ def dps2(
 
         print(f"[intermediate] Saved diagnostics to {intermediate_dir}")
 
+    if patch_schedule != "fixed":
+        print(f"[MultiScale PaDIS] patch_schedule={patch_schedule}")
+        print(f"[MultiScale PaDIS] selected patch counts={patch_size_counter}")
+        print(f"[MultiScale PaDIS] patch_sizes={multiscale_patch_sizes}")
+        if patch_schedule == "train_random":
+            print(f"[MultiScale PaDIS] patch_probs={normalized_patch_probs}")
+
     _dps2_profile_end("dps2_total_ms", _t_dps2_total)
 
     return (
@@ -699,3 +723,134 @@ def dps_uncond(
     if pad>0:
         x = x[:,:,pad:-pad,pad:-pad]
     return x.detach()
+
+
+def dps_edm(
+        net,
+        measurement: torch.Tensor,
+        clean: torch.Tensor,
+        inverseop,
+        num_steps: int = 104,
+        repeats_per_sigma: int = 10,
+        sigma_min: float = 0.003,
+        sigma_max: float = 10.0,
+        rho: float = 7.0,
+        zeta: float = 3.0,
+        pad: int = 0,  # use SAME pad as PaDIS to align FOV
+        device: str = 'cuda',
+        randn_like=torch.randn_like,
+        verbose: bool = False,
+        save_dir: Optional[str] = None,
+        tag: Optional[str] = None,
+) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
+    """
+    EDM-style DPS reconstruction (whole-image denoising) with measurement consistency. Matches PaDIS-MRI noising schedule.
+    """
+    net.eval()
+
+    x_init = inverseop.adjoint(measurement).to(device)
+    x = x_init.clone()
+
+    t_base = _ve_base_schedule(net, num_steps, sigma_min, sigma_max, rho, device)
+    t_rep = torch.repeat_interleave(t_base[:-1], repeats_per_sigma)
+    t_steps = torch.cat([t_rep, t_base[-1:]], dim=0)
+
+    noisypsnr = denoisedpsnr = noisyssim = denoisedssim = noisynrmse = denoisednrmse = 0.0
+    total_iters = t_steps.numel() - 1
+
+    # 3) main Euler‐Maruyama loop
+    for i in tqdm.tqdm(range(total_iters)):
+        t_cur = t_steps[i].float()
+        alpha = 0.5 * (t_cur ** 2)
+
+        x = x.detach().requires_grad_(True)
+
+        # VE noise injection
+        x_noisy = x + t_cur * randn_like(x)
+
+        # model call in 2ch real
+        x_real = torch.view_as_real(x_noisy.squeeze(1)).permute(0, 3, 1, 2)
+        den_real = net(x_real, t_cur)  # [B,2,H,W]
+
+        # score calc
+        den_cplx = torch.complex(den_real[:, 0], den_real[:, 1]).unsqueeze(1)
+        score = (den_cplx - x_noisy) / (t_cur ** 2)
+
+        # measurement‐consistency
+        Ax = inverseop.forward(den_real)
+        residual = measurement - Ax
+        sse = torch.sum(torch.abs(residual).view(residual.shape[0], -1) ** 2, dim=1)  # [B]
+        # gradient of SSE w.r.t. x_cplx
+        grad_l = torch.autograd.grad(outputs=sse, inputs=x)[0]
+
+        # measurement‐consistency update
+        x_mid = x + (alpha / 2) * score - (zeta / torch.sqrt(sse)[:, None, None, None]) * grad_l
+
+        # diffusion update
+        if i < total_iters - 1:
+            x = x_mid + torch.sqrt(alpha) * randn_like(x_mid)
+        else:
+            x = x_mid
+
+        if verbose:
+            with torch.no_grad():
+                print(f"step {i + 1}/{num_steps} -> ||x||={torch.linalg.norm(x).item():.4f}")
+
+        # if save_dir is not None and i == num_steps-1:
+        #     noisypsnr, denoisedpsnr, noisyssim, denoisedssim, noisynrmse, denoisednrmse = makeFigures(
+        #                                                                                         x_init.squeeze(1),
+        #                                                                                         x.squeeze(1).detach(),
+        #                                                                                         clean.squeeze(1),
+        #                                                                                         i,
+        #                                                                                         save_dir,
+        #                                                                                         tag)
+
+    return x.detach(), noisypsnr, denoisedpsnr, noisyssim, denoisedssim, noisynrmse, denoisednrmse
+
+
+@torch.no_grad()
+def dps_uncond_edm(
+        net,
+        batch_size=1,
+        resolution=384,
+        num_steps=96,
+        sigma_min=0.003,
+        sigma_max=10.0,
+        rho=7,
+        device='cuda',
+        randn_like=torch.randn_like,
+):
+    """
+    Unconditional generation using a plain EDM model trained on full images (no patching).
+    """
+
+    # 1) initialize noise
+    shape = (batch_size, net.img_channels, resolution, resolution)
+    x = sigma_max * randn_like(torch.empty(shape, device=device))
+
+    # 2) build noise schedule
+    step_indices = torch.arange(num_steps, dtype=torch.float64, device=device)
+    t_steps = (
+                      sigma_max ** (1 / rho)
+                      + (step_indices / (num_steps - 1)) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
+              ) ** rho
+    # append final zero
+    t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])
+
+    # 3) Euler–Maruyama loop
+    for t_cur, t_next in zip(t_steps[:-1], t_steps[1:]):
+        sigma = t_cur.float()
+        dt = (t_next - t_cur).float()
+
+        # score estimate via denoising network
+        denoised = net(x, sigma)  # [B,C,H,W]
+        score = (x - denoised) / sigma  # [B,C,H,W]
+
+        # Euler update
+        x = x + score * dt
+
+    x = x.squeeze(0)
+    real = x[0]
+    imag = x[1]
+    complex = torch.complex(real, imag)
+    return complex
