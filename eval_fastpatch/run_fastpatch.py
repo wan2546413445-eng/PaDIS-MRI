@@ -36,20 +36,29 @@ def parse_args():
         "--patch_schedule",
         type=str,
         default="fixed",
-        choices=["fixed", "train_random", "coarse_to_fine"],
+        choices=["fixed", "train_random", "coarse_to_fine", "sigma_c2f"],
         help="Patch sampling schedule for PaDIS posterior inference."
     )
     p.add_argument(
+        "--sigma_switch",
+        type=float,
+        default=0.1,
+        help="Sigma threshold for sigma_c2f patch schedule. Use large patch when sigma > threshold, small patch otherwise."
+    )
+
+    p.add_argument(
         "--multiscale_patch_sizes",
         type=str,
-        default="16,32,64",
-        help="Comma-separated patch sizes used when patch_schedule is not fixed."
+        default="",
+        help="Comma-separated patch sizes used when patch_schedule is not fixed. "
+             "If omitted: sigma_c2f uses 32,64; train_random/coarse_to_fine use 16,32,64."
     )
     p.add_argument(
         "--multiscale_patch_probs",
         type=str,
-        default="0.2,0.3,0.5",
-        help="Comma-separated patch probabilities for train_random schedule."
+        default="",
+        help="Comma-separated patch probabilities for train_random schedule. "
+             "If omitted, train_random uses 0.2,0.3,0.5."
     )
     p.add_argument("--mask_select", type=int, default=7)
     p.add_argument("--val_count", type=int, default=32)
@@ -119,6 +128,24 @@ def parse_args():
     p.add_argument("--uncond_model_paths", type=str, default="", help="Comma-separated .pkl paths for unconditional sampling")
     p.add_argument("--num_samples_per_model", type=int, default=3)
 
+    p.add_argument(
+        "--resume_enable",
+        action="store_true",
+        help="Enable pseudo Noise&Resume posterior perturbation."
+    )
+    p.add_argument(
+        "--resume_step",
+        type=int,
+        default=52,
+        help="Outer diffusion step after which pseudo Noise&Resume injects noise."
+    )
+    p.add_argument(
+        "--resume_noise_std",
+        type=float,
+        default=0.05,
+        help="Noise std injected into current posterior state for pseudo Noise&Resume."
+    )
+
     return p.parse_args()
 
 
@@ -146,6 +173,39 @@ def main():
     multiscale_patch_sizes = parse_list(args.multiscale_patch_sizes, cast=int)
     multiscale_patch_probs = parse_list(args.multiscale_patch_probs, cast=float)
 
+    # Schedule-specific defaults.
+    # Keep fixed mode untouched. Only fill defaults when a multiscale schedule needs them.
+    if args.patch_schedule == "sigma_c2f":
+        if not multiscale_patch_sizes:
+            multiscale_patch_sizes = [32, 64]
+        if len(multiscale_patch_sizes) != 2:
+            raise ValueError(
+                "--patch_schedule sigma_c2f requires exactly two patch sizes, e.g. "
+                "--multiscale_patch_sizes 32,64"
+            )
+
+    elif args.patch_schedule == "train_random":
+        if not multiscale_patch_sizes:
+            multiscale_patch_sizes = [16, 32, 64]
+        if not multiscale_patch_probs:
+            multiscale_patch_probs = [0.2, 0.3, 0.5]
+        if len(multiscale_patch_sizes) != len(multiscale_patch_probs):
+            raise ValueError(
+                "train_random requires multiscale_patch_sizes and multiscale_patch_probs "
+                "to have the same length."
+            )
+
+    elif args.patch_schedule == "coarse_to_fine":
+        if not multiscale_patch_sizes:
+            multiscale_patch_sizes = [16, 32, 64]
+
+    if args.resume_enable:
+        print(
+            f"[Noise&Resume] enabled: "
+            f"resume_step={args.resume_step}, "
+            f"resume_noise_std={args.resume_noise_std}"
+        )
+
     opt = DPSHyperEvaluator(
         model=model,
         mask_select=args.mask_select,
@@ -156,6 +216,7 @@ def main():
         val_count=args.val_count,
         seed=args.seed,
         sample_indices=sample_indices if sample_indices else None,
+
     )
 
     tag = ("whole" if args.algo == "edm" else "patch") if args.algo != "admm" else "admm"
@@ -217,6 +278,9 @@ def main():
             print(f"[Patch Schedule] probs={multiscale_patch_probs}")
         elif args.patch_schedule == "coarse_to_fine":
             print(f"[Patch Schedule] sizes={multiscale_patch_sizes}")
+        elif args.patch_schedule == "sigma_c2f":
+            print(f"[Patch Schedule] sizes={multiscale_patch_sizes}")
+            print(f"[Patch Schedule] sigma_switch={args.sigma_switch}")
     if args.run_evaluate:
         metrics = opt.evaluate(
             zeta=args.zeta if args.algo in ("padis", "edm") else 0.0,
@@ -235,6 +299,10 @@ def main():
             patch_schedule=args.patch_schedule,
             multiscale_patch_sizes=multiscale_patch_sizes,
             multiscale_patch_probs=multiscale_patch_probs,
+            sigma_switch=args.sigma_switch,
+            resume_enable=args.resume_enable,
+            resume_step=args.resume_step,
+            resume_noise_std=args.resume_noise_std,
         )
         s = metrics['summary']
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")

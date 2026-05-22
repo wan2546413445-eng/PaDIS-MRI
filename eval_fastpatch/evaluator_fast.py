@@ -361,6 +361,10 @@ class DPSHyperEvaluator:
             patch_schedule: str = "fixed",
             multiscale_patch_sizes=None,
             multiscale_patch_probs=None,
+            sigma_switch: float = 0.1,
+            resume_enable: bool = False,
+            resume_step: int = 52,
+            resume_noise_std: float = 0.05,
     ):
         """
         Args:
@@ -417,6 +421,10 @@ class DPSHyperEvaluator:
                 patch_schedule=patch_schedule,
                 multiscale_patch_sizes=multiscale_patch_sizes,
                 multiscale_patch_probs=multiscale_patch_probs,
+                sigma_switch=sigma_switch,
+                resume_enable=resume_enable,
+                resume_step=resume_step,
+                resume_noise_std=resume_noise_std,
             )
             return recon, a, b, c, d, e, f
 
@@ -884,6 +892,10 @@ class DPSHyperEvaluator:
             patch_schedule: str = "fixed",
             multiscale_patch_sizes=None,
             multiscale_patch_probs=None,
+            sigma_switch: float = 0.1,
+            resume_enable: bool = False,
+            resume_step: int = 52,
+            resume_noise_std: float = 0.05,
     ):
         """
         Runs PaDIS-MRI on all 100 validation volumes, saves side-by-side figures,
@@ -944,6 +956,10 @@ class DPSHyperEvaluator:
                         patch_schedule=patch_schedule,
                         multiscale_patch_sizes=multiscale_patch_sizes,
                         multiscale_patch_probs=multiscale_patch_probs,
+                        sigma_switch=sigma_switch,
+                        resume_enable=resume_enable,
+                        resume_step=resume_step,
+                        resume_noise_std=resume_noise_std,
                     )
                 elif algo.lower() == "edm":
                     recon, _, recon_psnr, _, recon_ssim, _, recon_nrmse = self.dps_edm_wrapper(
@@ -1076,4 +1092,5 @@ class DPSHyperEvaluator:
                 plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
                 plt.close()
 
+            print(f"Saved {num_samples_per_model} samples {out_dir}")
             print(f"Saved {num_samples_per_model} samples {out_dir}")

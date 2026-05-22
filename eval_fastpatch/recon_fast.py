@@ -326,6 +326,10 @@ def dps2(
     patch_schedule: str = "fixed",
     multiscale_patch_sizes=None,
     multiscale_patch_probs=None,
+    sigma_switch: float = 0.1,
+    resume_enable: bool = False,
+    resume_step: int = 52,
+    resume_noise_std: float = 0.05,
 ) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
     """
     PaDIS (patch DPS) MRI reconstruction with 10 inner sub-steps per sigma
@@ -346,29 +350,65 @@ def dps2(
     w = latents.shape[-1]
     patches = w // psize + 1
     spaced = np.linspace(0, (patches - 1) * psize, patches, dtype=int)
-    patch_size_counter = {}
+
     if patch_schedule == "train_random":
-        if multiscale_patch_sizes is None:
+        if not multiscale_patch_sizes:
             multiscale_patch_sizes = [16, 32, 64]
-        if multiscale_patch_probs is None:
+        if not multiscale_patch_probs:
             multiscale_patch_probs = [0.2, 0.3, 0.5]
+
         normalized_patch_probs = _normalize_patch_probs(
             multiscale_patch_sizes,
             multiscale_patch_probs,
         )
+
     elif patch_schedule == "coarse_to_fine":
-        if multiscale_patch_sizes is None:
+        if not multiscale_patch_sizes:
             multiscale_patch_sizes = [16, 32, 64]
+
+        if len(multiscale_patch_sizes) == 0:
+            raise ValueError("multiscale_patch_sizes must be non-empty for coarse_to_fine.")
+
         normalized_patch_probs = None
+
+    elif patch_schedule == "sigma_c2f":
+        if not multiscale_patch_sizes:
+            multiscale_patch_sizes = [32, 64]
+
+        if len(multiscale_patch_sizes) != 2:
+            raise ValueError(
+                "sigma_c2f requires exactly two patch sizes, e.g. [32, 64]."
+            )
+
+        normalized_patch_probs = None
+        sizes_desc = sorted([int(s) for s in multiscale_patch_sizes], reverse=True)
+        sigma_large_psize = sizes_desc[0]
+        sigma_small_psize = sizes_desc[-1]
+
     elif patch_schedule == "fixed":
         normalized_patch_probs = None
+
     else:
         raise ValueError(f"Unknown patch_schedule: {patch_schedule}")
-
     x_init = inverseop.adjoint(measurement).detach()
     x = torch.nn.functional.pad(x_init, (pad, pad, pad, pad), "constant", 0)  # complex
 
     t_steps = _ve_base_schedule(net, num_steps, sigma_min, sigma_max, rho, device)
+
+    resume_done = False
+    if resume_enable:
+        if int(resume_step) < 1 or int(resume_step) >= int(num_steps):
+            raise ValueError(
+                f"resume_step must be in [1, num_steps-1], got {resume_step}."
+            )
+        if float(resume_noise_std) < 0:
+            raise ValueError(
+                f"resume_noise_std must be non-negative, got {resume_noise_std}."
+            )
+        print(
+            f"[Noise&Resume] pseudo enabled: "
+            f"resume_step={resume_step}, resume_noise_std={resume_noise_std}"
+        )
 
     _maybe_print_dps2_input_dtype_debug(
         measurement=measurement,
@@ -392,6 +432,13 @@ def dps2(
             f"[Patch Sampling] schedule=coarse_to_fine, "
             f"sizes={multiscale_patch_sizes}"
         )
+    elif patch_schedule == "sigma_c2f":
+        print(
+            f"[Patch Sampling] schedule=sigma_c2f, "
+            f"sizes={multiscale_patch_sizes}, "
+            f"sigma_switch={sigma_switch}"
+        )
+
     noisypsnr = denoisedpsnr = noisyssim = denoisedssim = noisynrmse = denoisednrmse = 0.0
 
     # ------------------------------------------------------------------
@@ -426,9 +473,18 @@ def dps2(
             _t_prepare = _dps2_profile_start()
 
             if patch_schedule == "fixed":
-                cur_psize = psize
                 indices = getIndices(spaced, patches, pad, psize)
                 crop_pad_arg = None
+            elif patch_schedule == "sigma_c2f":
+                cur_psize = sigma_large_psize if float(t_cur.item()) > float(sigma_switch) else sigma_small_psize
+                indices = getIndicesMultiScale(
+                    image_size=w,
+                    pad=pad,
+                    psize=cur_psize,
+                    freezeindex=False,
+                )
+                crop_pad_arg = pad
+
             else:
                 cur_psize = _select_multiscale_patch_size(
                     patch_schedule=patch_schedule,
@@ -444,7 +500,6 @@ def dps2(
                     freezeindex=False,
                 )
                 crop_pad_arg = pad
-            patch_size_counter[cur_psize] = patch_size_counter.get(cur_psize, 0) + 1
             x = x.detach().requires_grad_(True)
             x_before_update = x
 
@@ -577,6 +632,35 @@ def dps2(
             if verbose:
                 with torch.no_grad():
                     print(f"step {i+1}/{num_steps} -> ||x||={torch.linalg.norm(x).item():.4f}")
+
+        # ------------------------------------------------------------------
+        # Pseudo Noise & Resume
+        # ------------------------------------------------------------------
+        # Inspired by multiscale patch diffusion N&R:
+        # after a chosen outer step, perturb the current posterior state
+        # with a small amount of noise, then continue the original schedule.
+        #
+        # This is intentionally conservative:
+        # - does not change patch size
+        # - does not change zeta
+        # - does not rebuild t_steps
+        # - does not touch denoise_padding_fast.py
+        # ------------------------------------------------------------------
+        if resume_enable and (not resume_done) and (i + 1 == int(resume_step)):
+            with torch.no_grad():
+                noise_std = torch.as_tensor(
+                    float(resume_noise_std),
+                    dtype=x.real.dtype,
+                    device=x.device,
+                )
+                x = x.detach() + noise_std * randn_like(x.detach())
+                resume_done = True
+
+            print(
+                f"[Noise&Resume] injected noise after outer_step={i+1}, "
+                f"noise_std={resume_noise_std}"
+            )
+
         # ------------------------------------------------------------------
         # Save intermediate visualization after the full inner loop of this
         # outer diffusion step.
@@ -634,13 +718,6 @@ def dps2(
             writer.writerows(intermediate_rows)
 
         print(f"[intermediate] Saved diagnostics to {intermediate_dir}")
-
-    if patch_schedule != "fixed":
-        print(f"[MultiScale PaDIS] patch_schedule={patch_schedule}")
-        print(f"[MultiScale PaDIS] selected patch counts={patch_size_counter}")
-        print(f"[MultiScale PaDIS] patch_sizes={multiscale_patch_sizes}")
-        if patch_schedule == "train_random":
-            print(f"[MultiScale PaDIS] patch_probs={normalized_patch_probs}")
 
     _dps2_profile_end("dps2_total_ms", _t_dps2_total)
 
