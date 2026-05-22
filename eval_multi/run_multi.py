@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import dnnlib
 
-from evaluator_fast import DPSHyperEvaluator
+from evaluator_multi import DPSHyperEvaluator
 from eval.utils import post_eval_normalize
 
 def parse_args():
@@ -146,6 +146,22 @@ def parse_args():
         help="Noise std injected into current posterior state for pseudo Noise&Resume."
     )
 
+    p.add_argument(
+        "--resume_mode",
+        type=str,
+        default="pseudo",
+        choices=["pseudo", "schedule"],
+        help="Noise&Resume mode. 'pseudo' only injects small noise; "
+             "'schedule' jumps back to a higher sigma schedule segment."
+    )
+    p.add_argument(
+        "--resume_restart_sigma",
+        type=float,
+        default=0.2,
+        help="Target sigma for schedule restart mode. "
+             "The nearest sigma in the VE schedule will be used."
+    )
+
     return p.parse_args()
 
 
@@ -202,8 +218,10 @@ def main():
     if args.resume_enable:
         print(
             f"[Noise&Resume] enabled: "
+            f"mode={args.resume_mode}, "
             f"resume_step={args.resume_step}, "
-            f"resume_noise_std={args.resume_noise_std}"
+            f"resume_noise_std={args.resume_noise_std}, "
+            f"resume_restart_sigma={args.resume_restart_sigma}"
         )
 
     opt = DPSHyperEvaluator(
@@ -303,6 +321,8 @@ def main():
             resume_enable=args.resume_enable,
             resume_step=args.resume_step,
             resume_noise_std=args.resume_noise_std,
+            resume_mode=args.resume_mode,
+            resume_restart_sigma=args.resume_restart_sigma,
         )
         s = metrics['summary']
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")

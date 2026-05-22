@@ -330,6 +330,8 @@ def dps2(
     resume_enable: bool = False,
     resume_step: int = 52,
     resume_noise_std: float = 0.05,
+    resume_mode: str = "pseudo",
+    resume_restart_sigma: float = 0.2,
 ) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
     """
     PaDIS (patch DPS) MRI reconstruction with 10 inner sub-steps per sigma
@@ -393,23 +395,86 @@ def dps2(
     x_init = inverseop.adjoint(measurement).detach()
     x = torch.nn.functional.pad(x_init, (pad, pad, pad, pad), "constant", 0)  # complex
 
-    t_steps = _ve_base_schedule(net, num_steps, sigma_min, sigma_max, rho, device)
+    t_base = _ve_base_schedule(net, num_steps, sigma_min, sigma_max, rho, device)
 
     resume_done = False
+    resume_restart_index = None
+    resume_actual_sigma = None
+
     if resume_enable:
+        if resume_mode not in ("pseudo", "schedule"):
+            raise ValueError(
+                f"resume_mode must be 'pseudo' or 'schedule', got {resume_mode}."
+            )
+
         if int(resume_step) < 1 or int(resume_step) >= int(num_steps):
             raise ValueError(
                 f"resume_step must be in [1, num_steps-1], got {resume_step}."
             )
-        if float(resume_noise_std) < 0:
-            raise ValueError(
-                f"resume_noise_std must be non-negative, got {resume_noise_std}."
-            )
-        print(
-            f"[Noise&Resume] pseudo enabled: "
-            f"resume_step={resume_step}, resume_noise_std={resume_noise_std}"
-        )
 
+        if resume_mode == "pseudo":
+            if float(resume_noise_std) < 0:
+                raise ValueError(
+                    f"resume_noise_std must be non-negative, got {resume_noise_std}."
+                )
+
+            t_steps = t_base
+            print(
+                f"[Noise&Resume] pseudo enabled: "
+                f"resume_step={resume_step}, resume_noise_std={resume_noise_std}"
+            )
+
+        else:
+            if float(resume_restart_sigma) <= 0:
+                raise ValueError(
+                    f"resume_restart_sigma must be positive, got {resume_restart_sigma}."
+                )
+
+            base_sigmas = t_base[:-1].float()
+            resume_step_int = int(resume_step)
+            sigma_at_resume = float(base_sigmas[resume_step_int - 1].item())
+
+            resume_restart_index = int(
+                torch.argmin(
+                    torch.abs(base_sigmas - float(resume_restart_sigma))
+                ).item()
+            )
+            resume_actual_sigma = float(base_sigmas[resume_restart_index].item())
+
+            if resume_restart_index >= resume_step_int:
+                raise ValueError(
+                    "schedule restart must jump back to an earlier/larger sigma. "
+                    f"resume_step={resume_step_int}, "
+                    f"sigma_at_resume={sigma_at_resume:.6f}, "
+                    f"requested resume_restart_sigma={resume_restart_sigma}, "
+                    f"nearest_sigma={resume_actual_sigma:.6f}, "
+                    f"nearest_index_1based={resume_restart_index + 1}. "
+                    "Use a larger resume_restart_sigma."
+                )
+
+            # First run original schedule through resume_step outer steps,
+            # then resume from the nearest higher restart sigma down to zero.
+            t_steps = torch.cat(
+                [
+                    t_base[:resume_step_int],
+                    t_base[resume_restart_index:],
+                ],
+                dim=0,
+            )
+
+            print(
+                f"[Schedule Restart] enabled: "
+                f"resume_step={resume_step_int}, "
+                f"sigma_at_resume={sigma_at_resume:.6f}, "
+                f"requested_restart_sigma={resume_restart_sigma}, "
+                f"actual_restart_sigma={resume_actual_sigma:.6f}, "
+                f"restart_index_1based={resume_restart_index + 1}"
+            )
+
+    else:
+        t_steps = t_base
+
+    total_outer_steps = int(t_steps.numel() - 1)
     _maybe_print_dps2_input_dtype_debug(
         measurement=measurement,
         inverseop=inverseop,
@@ -491,7 +556,7 @@ def dps2(
                     patch_sizes=multiscale_patch_sizes,
                     patch_probs=normalized_patch_probs,
                     outer_step=i,
-                    num_steps=num_steps,
+                    num_steps=total_outer_steps,
                 )
                 indices = getIndicesMultiScale(
                     image_size=w,
@@ -596,7 +661,7 @@ def dps2(
             # ----------------------------------------------------------
             _t_diffusion_update = _dps2_profile_start()
 
-            if i < num_steps - 1:
+            if i < total_outer_steps - 1:
                 x_after_diffusion_update = (
                         x + (alpha / 2) * score + torch.sqrt(alpha) * randn_like(x)
                 )
@@ -648,19 +713,43 @@ def dps2(
         # ------------------------------------------------------------------
         if resume_enable and (not resume_done) and (i + 1 == int(resume_step)):
             with torch.no_grad():
-                noise_std = torch.as_tensor(
-                    float(resume_noise_std),
-                    dtype=x.real.dtype,
-                    device=x.device,
-                )
-                x = x.detach() + noise_std * randn_like(x.detach())
+                if resume_mode == "pseudo":
+                    noise_std = torch.as_tensor(
+                        float(resume_noise_std),
+                        dtype=x.real.dtype,
+                        device=x.device,
+                    )
+                    x = x.detach() + noise_std * randn_like(x.detach())
+
+                    print(
+                        f"[Noise&Resume] injected pseudo noise after outer_step={i + 1}, "
+                        f"noise_std={resume_noise_std}"
+                    )
+
+                elif resume_mode == "schedule":
+                    restart_sigma_t = torch.as_tensor(
+                        float(resume_actual_sigma),
+                        dtype=x.real.dtype,
+                        device=x.device,
+                    )
+                    x = x.detach() + restart_sigma_t * randn_like(x.detach())
+
+                    next_sigma = (
+                        float(t_steps[i + 1].item())
+                        if (i + 1) < total_outer_steps
+                        else 0.0
+                    )
+
+                    print(
+                        f"[Schedule Restart] injected restart noise after outer_step={i + 1}, "
+                        f"restart_sigma={resume_actual_sigma:.6f}, "
+                        f"next_sigma={next_sigma:.6f}"
+                    )
+
+                else:
+                    raise ValueError(f"Unknown resume_mode: {resume_mode}")
+
                 resume_done = True
-
-            print(
-                f"[Noise&Resume] injected noise after outer_step={i+1}, "
-                f"noise_std={resume_noise_std}"
-            )
-
         # ------------------------------------------------------------------
         # Save intermediate visualization after the full inner loop of this
         # outer diffusion step.
@@ -672,7 +761,7 @@ def dps2(
             and (
                 i == 0
                 or ((i + 1) % intermediate_every == 0)
-                or (i == num_steps - 1)
+                or (i == total_outer_steps - 1)
             )
         )
 
@@ -698,7 +787,7 @@ def dps2(
 
             intermediate_rows.append({
                 "step": int(i + 1),
-                "num_steps": int(num_steps),
+                "num_steps": int(total_outer_steps),
                 "noisy_psnr": float(noisy_psnr),
                 "recon_psnr": float(recon_psnr),
                 "noisy_ssim": float(noisy_ssim),

@@ -32,7 +32,7 @@ from bart import bart
 
 from eval.inverse_operators import *
 from eval.utils import fftmod, makeFigures
-from recon_fast import dps2, dps_uncond, dps_edm, dps_uncond_edm
+from recon_multi import dps2, dps_uncond, dps_edm, dps_uncond_edm
 
 random.seed(123)
 torch.manual_seed(123)
@@ -365,6 +365,8 @@ class DPSHyperEvaluator:
             resume_enable: bool = False,
             resume_step: int = 52,
             resume_noise_std: float = 0.05,
+            resume_mode: str = "pseudo",
+            resume_restart_sigma: float = 0.2,
     ):
         """
         Args:
@@ -425,6 +427,8 @@ class DPSHyperEvaluator:
                 resume_enable=resume_enable,
                 resume_step=resume_step,
                 resume_noise_std=resume_noise_std,
+                resume_mode=resume_mode,
+                resume_restart_sigma=resume_restart_sigma,
             )
             return recon, a, b, c, d, e, f
 
@@ -896,6 +900,8 @@ class DPSHyperEvaluator:
             resume_enable: bool = False,
             resume_step: int = 52,
             resume_noise_std: float = 0.05,
+            resume_mode: str = "pseudo",
+            resume_restart_sigma: float = 0.2,
     ):
         """
         Runs PaDIS-MRI on all 100 validation volumes, saves side-by-side figures,
@@ -960,6 +966,8 @@ class DPSHyperEvaluator:
                         resume_enable=resume_enable,
                         resume_step=resume_step,
                         resume_noise_std=resume_noise_std,
+                        resume_mode=resume_mode,
+                        resume_restart_sigma=resume_restart_sigma,
                     )
                 elif algo.lower() == "edm":
                     recon, _, recon_psnr, _, recon_ssim, _, recon_nrmse = self.dps_edm_wrapper(
