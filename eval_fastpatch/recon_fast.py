@@ -7,6 +7,8 @@ from typing import Optional, Tuple
 import os
 import sys
 import csv
+import time
+from contextlib import nullcontext
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from dnnlib.util import configure_bart
@@ -37,14 +39,13 @@ def _ve_base_schedule(
     t = net.round_sigma(t)
     return torch.cat([t, torch.zeros(1, dtype=torch.float64, device=device)], dim=0)
 
-
 def dps2(
         net,
         latents: torch.Tensor,
         latents_pos: torch.Tensor,
         inverseop,
         measurement: Optional[torch.Tensor],
-        num_steps: int = 104,  # num noising steps
+        num_steps: int = 104,
         inner_loops: int = 10,
         sigma_min: float = 0.003,
         sigma_max: float = 10.0,
@@ -60,34 +61,59 @@ def dps2(
         tag: Optional[str] = None,
         save_intermediate: bool = False,
         intermediate_every: int = 10,
+        posterior_mode: str = "original",
+        cheap_dc_mode: str = "adjoint",
+        phase_full_every: Tuple[int, int, int] = (8, 4, 2),
+        final_full_steps: int = 5,
+        stagnation_window: int = 3,
+        stagnation_ratio: float = 0.98,
+        cheap_dc_scale: float = 2.0,
 ) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
-    """
-    PaDIS (patch DPS) MRI reconstruction with 10 inner sub-steps per sigma
-    (total ~1040 updates for num_steps=104).
-
-    Optional diagnostic mode:
-    - save_intermediate=True:
-        Save author-style intermediate visualizations and metrics
-        after selected outer diffusion steps.
-    - intermediate_every:
-        Save every N outer steps, while always saving step 1 and final step.
-    """
 
     net.eval()
+
+    if posterior_mode not in ("original", "anchored"):
+        raise ValueError(f"Unsupported posterior_mode: {posterior_mode}")
+
+    if cheap_dc_mode != "adjoint":
+        raise ValueError(f"Unsupported cheap_dc_mode: {cheap_dc_mode}")
+
+    if len(phase_full_every) != 3:
+        raise ValueError("phase_full_every must contain exactly three integers.")
+
+    def _cuda_sync():
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
+    def _full_every_for_step(step_idx: int) -> int:
+        if step_idx < 0.25 * num_steps:
+            return max(1, int(phase_full_every[0]))
+        if step_idx < 0.75 * num_steps:
+            return max(1, int(phase_full_every[1]))
+        return max(1, int(phase_full_every[2]))
+
+    def _should_force_full_from_history(history) -> bool:
+        if stagnation_window <= 0:
+            return False
+        if len(history) < stagnation_window + 1:
+            return False
+        prev = history[-(stagnation_window + 1):-1]
+        if len(prev) == 0:
+            return False
+        best_prev = min(prev)
+        return history[-1] > stagnation_ratio * best_prev
+
     w = latents.shape[-1]
     patches = w // psize + 1
     spaced = np.linspace(0, (patches - 1) * psize, patches, dtype=int)
 
     x_init = inverseop.adjoint(measurement).detach()
-    x = torch.nn.functional.pad(x_init, (pad, pad, pad, pad), "constant", 0)  # complex
+    x = torch.nn.functional.pad(x_init, (pad, pad, pad, pad), "constant", 0)
 
     t_steps = _ve_base_schedule(net, num_steps, sigma_min, sigma_max, rho, device)
 
     noisypsnr = denoisedpsnr = noisyssim = denoisedssim = noisynrmse = denoisednrmse = 0.0
 
-    # ------------------------------------------------------------------
-    # Intermediate visualization / author-style metric diagnostics
-    # ------------------------------------------------------------------
     intermediate_rows = []
     intermediate_dir = None
     safe_tag = tag if tag is not None else "sample"
@@ -98,9 +124,20 @@ def dps2(
         os.makedirs(intermediate_dir, exist_ok=True)
         print(f"[intermediate] Enabled: {intermediate_dir} | every={intermediate_every}")
 
-    # ------------------------------------------------------------------
-    # Main posterior sampling loop
-    # ------------------------------------------------------------------
+    total_updates = 0
+    full_updates = 0
+    cheap_updates = 0
+    dc_err_history = []
+    dc_err_sum = 0.0
+    likelihood_backward_runtime = 0.0
+    cheap_adjoint_runtime = 0.0
+    run_start = time.perf_counter()
+
+    measurement_norm = (
+        torch.norm(measurement.reshape(measurement.shape[0], -1), dim=-1)
+        + 1e-12
+    )
+
     for i, (t_cur, t_next) in tqdm.tqdm(
             enumerate(zip(t_steps[:-1], t_steps[1:])),
             total=len(t_steps) - 1
@@ -109,69 +146,119 @@ def dps2(
         alpha = 0.5 * t_cur ** 2
 
         for j in range(inner_loops):
-            indices = getIndices(spaced, patches, pad, psize)
-            x = x.detach().requires_grad_(True)
-
-            # VE noise injection
-            x_noisy = x + (t_cur * randn_like(x))
-            x_real_noisy = torch.view_as_real(
-                x_noisy.squeeze(1)
-            ).permute(0, 3, 1, 2)  # (B,2,H_pad,W_pad)
-
-            # Patch denoise -> 2ch real-valued (Re, Im)
-            D_real = denoisedFromPatches(
-                net,
-                x_real_noisy,
-                t_cur,
-                latents_pos,
-                None,
-                indices,
-                t_goal=0,
-                wrong=False
-            )
-
-            # Score function calculation
-            D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
-            score = (D_cplx - x_noisy) / (t_cur ** 2)
-
-            cropped_x0hat = D_real if pad == 0 else D_real[:, :, pad:pad + w, pad:pad + w]
-
-            # Forward + residual
-            Ax = inverseop.forward(cropped_x0hat)
-            residual = measurement - Ax
-            residual_flat = residual.reshape(x.shape[0], -1)
-            sse_ind = torch.norm(residual_flat, dim=-1) ** 2
-            sse = torch.sum(sse_ind)
-
-            # Gradient of SSE w.r.t. x
-            likelihood_grad = torch.autograd.grad(outputs=sse, inputs=x)[0]
-
-            # Measurement-consistency update
-            x = x - (zeta / torch.sqrt(sse_ind)[:, None, None, None]) * likelihood_grad
-
-            # Diffusion step
-            if i < num_steps - 1:
-                x = x + (alpha / 2) * score + torch.sqrt(alpha) * randn_like(x)
+            if posterior_mode == "original":
+                use_full = True
             else:
-                x = x + (alpha / 2) * score
+                use_full = False
+                full_every = _full_every_for_step(i)
+
+                if (j % full_every) == 0:
+                    use_full = True
+
+                if i >= num_steps - int(final_full_steps):
+                    use_full = True
+
+                if _should_force_full_from_history(dc_err_history):
+                    use_full = True
+
+            indices = getIndices(spaced, patches, pad, psize)
+
+            if use_full:
+                x = x.detach().requires_grad_(True)
+                grad_context = nullcontext()
+            else:
+                x = x.detach()
+                grad_context = torch.no_grad()
+
+            with grad_context:
+                x_noisy = x + (t_cur * randn_like(x))
+                x_real_noisy = torch.view_as_real(
+                    x_noisy.squeeze(1)
+                ).permute(0, 3, 1, 2).contiguous()
+
+                D_real = denoisedFromPatches(
+                    net,
+                    x_real_noisy,
+                    t_cur,
+                    latents_pos,
+                    None,
+                    indices,
+                    t_goal=0,
+                    wrong=False
+                )
+
+                D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
+                score = (D_cplx - x_noisy) / (t_cur ** 2)
+
+                cropped_x0hat = (
+                    D_real
+                    if pad == 0
+                    else D_real[:, :, pad:pad + w, pad:pad + w]
+                )
+
+                Ax = inverseop.forward(cropped_x0hat)
+                residual = measurement - Ax
+                residual_flat = residual.reshape(x.shape[0], -1)
+                sse_ind = torch.norm(residual_flat, dim=-1) ** 2
+                sse = torch.sum(sse_ind)
+
+            dc_err = torch.sqrt(sse_ind.detach())
+            dc_err_norm = (dc_err / measurement_norm).mean().item()
+            dc_err_history.append(dc_err_norm)
+            dc_err_sum += dc_err_norm
+
+            if use_full:
+                _cuda_sync()
+                t0 = time.perf_counter()
+                likelihood_grad = torch.autograd.grad(outputs=sse, inputs=x)[0]
+                _cuda_sync()
+                likelihood_backward_runtime += time.perf_counter() - t0
+                full_updates += 1
+            else:
+                with torch.no_grad():
+                    residual_for_grad = Ax - measurement
+
+                    _cuda_sync()
+                    t0 = time.perf_counter()
+                    grad_crop = cheap_dc_scale * inverseop.adjoint(residual_for_grad)
+                    grad_padded = torch.zeros_like(x)
+
+                    if pad == 0:
+                        grad_padded = grad_crop
+                    else:
+                        grad_padded[:, :, pad:pad + w, pad:pad + w] = grad_crop
+
+                    likelihood_grad = grad_padded
+                    _cuda_sync()
+                    cheap_adjoint_runtime += time.perf_counter() - t0
+
+                cheap_updates += 1
+
+            total_updates += 1
+
+            update_context = nullcontext() if use_full else torch.no_grad()
+            with update_context:
+                scale = zeta / (torch.sqrt(sse_ind.detach())[:, None, None, None] + 1e-12)
+                x = x - scale * likelihood_grad
+
+                if i < num_steps - 1:
+                    x = x + (alpha / 2) * score + torch.sqrt(alpha) * randn_like(x)
+                else:
+                    x = x + (alpha / 2) * score
 
             if verbose:
                 with torch.no_grad():
                     print(f"step {i + 1}/{num_steps} -> ||x||={torch.linalg.norm(x).item():.4f}")
 
-        # ------------------------------------------------------------------
-        # Save intermediate visualization after the full inner loop of this
-        # outer diffusion step.
-        # ------------------------------------------------------------------
         should_save = (
-                save_intermediate
-                and intermediate_dir is not None
-                and clean is not None
-                and (
-                        i == 0
-                        or ((i + 1) % intermediate_every == 0)
-                        or (i == num_steps - 1)
-                )
+            save_intermediate
+            and intermediate_dir is not None
+            and clean is not None
+            and (
+                i == 0
+                or ((i + 1) % intermediate_every == 0)
+                or (i == num_steps - 1)
+            )
         )
 
         if should_save:
@@ -205,9 +292,6 @@ def dps2(
                 "recon_nrmse": float(recon_nrmse),
             })
 
-    # ------------------------------------------------------------------
-    # Save intermediate metric CSV
-    # ------------------------------------------------------------------
     if intermediate_rows and intermediate_dir is not None:
         csv_path = os.path.join(intermediate_dir, "intermediate_metrics.csv")
         with open(csv_path, "w", newline="") as f:
@@ -216,6 +300,22 @@ def dps2(
             writer.writerows(intermediate_rows)
 
         print(f"[intermediate] Saved diagnostics to {intermediate_dir}")
+
+    _cuda_sync()
+    total_runtime = time.perf_counter() - run_start
+    mean_dc_err = dc_err_sum / max(total_updates, 1)
+    final_dc_err = dc_err_history[-1] if dc_err_history else float("nan")
+    full_ratio = full_updates / max(total_updates, 1)
+
+    print(
+        f"[PaDIS dps2] posterior_mode={posterior_mode} "
+        f"total_updates={total_updates} full_updates={full_updates} "
+        f"cheap_updates={cheap_updates} full_ratio={full_ratio:.4f} "
+        f"mean_dc_err={mean_dc_err:.6e} final_dc_err={final_dc_err:.6e} "
+        f"total_runtime={total_runtime:.3f}s "
+        f"likelihood_backward_runtime={likelihood_backward_runtime:.3f}s "
+        f"cheap_adjoint_runtime={cheap_adjoint_runtime:.3f}s"
+    )
 
     return (
         x[:, :, pad:pad + w, pad:pad + w].detach().squeeze(1),
@@ -226,7 +326,6 @@ def dps2(
         noisynrmse,
         denoisednrmse,
     )
-
 
 @torch.no_grad()
 def dps_uncond(

@@ -294,6 +294,14 @@ class DPSHyperEvaluator:
             save_intermediate: bool = False,
             intermediate_every: int = 10,
             inner_loops: int = 10,
+            posterior_mode: str = "original",
+            cheap_dc_mode: str = "adjoint",
+            phase_full_every: Tuple[int, int, int] = (8, 4, 2),
+            final_full_steps: int = 5,
+            stagnation_window: int = 3,
+            stagnation_ratio: float = 0.98,
+            cheap_dc_scale: float = 2.0,
+
     ):
         """
         Args:
@@ -347,6 +355,14 @@ class DPSHyperEvaluator:
                 tag=tag,
                 save_intermediate=save_intermediate,
                 intermediate_every=intermediate_every,
+                posterior_mode=posterior_mode,
+                cheap_dc_mode=cheap_dc_mode,
+                phase_full_every=phase_full_every,
+                final_full_steps=final_full_steps,
+                stagnation_window=stagnation_window,
+                stagnation_ratio=stagnation_ratio,
+                cheap_dc_scale=cheap_dc_scale,
+
             )
             return recon, a, b, c, d, e, f
 
@@ -806,6 +822,14 @@ class DPSHyperEvaluator:
             lam: float = 1e-4,
             save_intermediate: bool = False,
             intermediate_every: int = 10,
+            posterior_mode: str = "original",
+            cheap_dc_mode: str = "adjoint",
+            phase_full_every: Tuple[int, int, int] = (8, 4, 2),
+            final_full_steps: int = 5,
+            stagnation_window: int = 3,
+            stagnation_ratio: float = 0.98,
+            cheap_dc_scale: float = 2.0,
+
     ):
         """
         Runs PaDIS-MRI on all 100 validation volumes, saves side-by-side figures,
@@ -863,6 +887,14 @@ class DPSHyperEvaluator:
                         save_intermediate=save_intermediate,
                         intermediate_every=intermediate_every,
                         inner_loops=inner_loops,
+                        posterior_mode=posterior_mode,
+                        cheap_dc_mode=cheap_dc_mode,
+                        phase_full_every=phase_full_every,
+                        final_full_steps=final_full_steps,
+                        stagnation_window=stagnation_window,
+                        stagnation_ratio=stagnation_ratio,
+                        cheap_dc_scale=cheap_dc_scale,
+
                     )
                 elif algo.lower() == "edm":
                     recon, _, recon_psnr, _, recon_ssim, _, recon_nrmse = self.dps_edm_wrapper(

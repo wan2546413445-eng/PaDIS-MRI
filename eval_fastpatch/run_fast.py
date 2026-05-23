@@ -12,6 +12,14 @@ import dnnlib
 from evaluator_fast import DPSHyperEvaluator
 from eval.utils import post_eval_normalize
 
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+EVAL_DIR = os.path.join(REPO_ROOT, "eval")
+
+for _p in (CURRENT_DIR, EVAL_DIR, REPO_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 def parse_args():
     p = argparse.ArgumentParser(description="DPS/EDM/ADMM experiment runner")
 
@@ -53,6 +61,23 @@ def parse_args():
         help="Save intermediate PaDIS reconstruction figures and author-style metrics during posterior sampling."
     )
 
+    p.add_argument("--posterior_mode", type=str, default="original", choices=["original", "anchored"],
+                   help="Posterior update mode for PaDIS dps2.")
+    p.add_argument("--cheap_dc_mode", type=str, default="adjoint", choices=["adjoint"],
+                   help="Cheap data consistency gradient mode for anchored posterior.")
+    p.add_argument("--phase_full_every", type=str, default="8,4,2",
+                   help="Comma-separated full-gradient cadence for phase1,2,3.")
+    p.add_argument("--final_full_steps", type=int, default=5,
+                   help="Force full gradients for final outer diffusion steps.")
+    p.add_argument("--stagnation_window", type=int, default=3, help="Window length for residual stagnation trigger.")
+    p.add_argument("--stagnation_ratio", type=float, default=0.98,
+                   help="Improvement ratio threshold for stagnation-triggered full updates.")
+    p.add_argument(
+        "--cheap_dc_scale",
+        type=float,
+        default=2.0,
+        help="Scale factor for cheap adjoint data-consistency gradients in anchored posterior mode."
+    )
     p.add_argument(
         "--intermediate_every",
         type=int,
@@ -101,7 +126,12 @@ def main():
     args = parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
 
+    phase_full_every = tuple(parse_list(args.phase_full_every, cast=int))
+    if len(phase_full_every) != 3:
+        raise ValueError("--phase_full_every must have exactly 3 comma-separated integers, e.g. 8,4,2")
+
     model = None
+
     if args.algo in ("padis", "edm"):
         if not args.model_path:
             raise ValueError("--model_path is required for algo padis/edm")
@@ -193,6 +223,14 @@ def main():
             lam=args.lam,
             save_intermediate=args.save_intermediate,
             intermediate_every=args.intermediate_every,
+            posterior_mode=args.posterior_mode,
+            cheap_dc_mode=args.cheap_dc_mode,
+            phase_full_every=phase_full_every,
+            final_full_steps=args.final_full_steps,
+            stagnation_window=args.stagnation_window,
+            stagnation_ratio=args.stagnation_ratio,
+            cheap_dc_scale=args.cheap_dc_scale,
+
         )
         s = metrics['summary']
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")
