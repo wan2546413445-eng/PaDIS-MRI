@@ -144,7 +144,7 @@ def main(**kwargs):
         c.loss_kwargs.class_name = 'training.loss.VELoss'
     elif opts.precond == 'pedm':
         c.network_kwargs.class_name = 'training.networks.Patch_EDMPrecond'
-        c.loss_kwargs.class_name = 'training.patch_loss_ffl.FocalFrequencyPatch_EDMLoss'
+        c.loss_kwargs.class_name = 'training.patch_loss_ffl_v2.FocalFrequencyPatch_EDMLoss'
         c.loss_kwargs.ffl_weight = opts.ffl_weight
         c.loss_kwargs.ffl_alpha = opts.ffl_alpha
         c.loss_kwargs.ffl_log_matrix = opts.ffl_log_matrix
