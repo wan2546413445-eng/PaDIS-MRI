@@ -20,8 +20,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 import dnnlib
 
 from torch_utils import distributed as dist
-from training import training_loop
-
+from training import training_loop_globalcond as training_loop
 import warnings
 
 warnings.filterwarnings('ignore',
@@ -166,16 +165,12 @@ def main(**kwargs):
     # Here hash_channels means condition channels, not hash encoding:
     #     2 position channels + 1/2 global-context channel(s).
     if opts.global_context_mode == 'none':
-        c.global_context_channels = 0
+        global_context_channels = 0
     elif opts.global_context_mode == 'magnitude_lowres':
-        c.global_context_channels = 1
+        global_context_channels = 1
     else:
-        c.global_context_channels = 2
-    c.hash_channels = 2 + c.global_context_channels
-    c.global_context_mode = opts.global_context_mode
-    c.global_context_size = opts.global_context_size
-    c.global_context_dropout = opts.global_context_dropout
-    c.global_context_from = opts.global_context_from
+        global_context_channels = 2
+    c.hash_channels = 2 + global_context_channels
     c.pad_width = opts.pad_width
 
     if opts.patch_list is not None:
@@ -219,7 +214,8 @@ def main(**kwargs):
         c.network_kwargs.class_name = 'training.networks.VEPrecond'
         c.loss_kwargs.class_name = 'training.loss.VELoss'
     elif opts.precond == 'pedm':
-        c.network_kwargs.class_name = 'training.networks.Patch_EDMPrecond'
+        c.network_kwargs.class_name = 'training.networks_globalcond_attn.PatchGC_Attn_EDMPrecond'
+        c.network_kwargs.model_type = 'SongUNetGCAttn'
         c.loss_kwargs.class_name = 'training.patch_loss_globalcond.GlobalContextPatch_EDMLoss'
         c.loss_kwargs.global_context_mode = opts.global_context_mode
         c.loss_kwargs.global_context_size = opts.global_context_size
@@ -281,7 +277,7 @@ def main(**kwargs):
     desc = (
         f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-'
         f'gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}-'
-        f'gc{opts.global_context_mode}_s{opts.global_context_size}_drop{opts.global_context_dropout}'
+        f'gcattn-gc{opts.global_context_mode}_s{opts.global_context_size}_drop{opts.global_context_dropout}'
     )
     if opts.desc is not None:
         desc += f'-{opts.desc}'
