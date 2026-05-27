@@ -18,7 +18,7 @@ mkdir -p $LOG_DIR
 
 MODE=${1:-debug}
 
-EXP_NAME=cp64_k8_l3_g4_cbase96_b4_fp32
+EXP_NAME=cross_patch_s16s32s64_k8_cbase96_b4_fp32
 
 
 if [ "$MODE" = "debug" ]; then
@@ -26,16 +26,26 @@ if [ "$MODE" = "debug" ]; then
   DURATION=0.01
   SNAP=1
   TICK=1
-elif [ "$MODE" = "short" ]; then
-  RUN_NAME=short_${EXP_NAME}
+elif [ "$MODE" = "probe" ]; then
+  RUN_NAME=probe_${EXP_NAME}
   DURATION=1
-  SNAP=10
-  TICK=1
-else
-  RUN_NAME=full_${EXP_NAME}
-  DURATION=200
+  SNAP=20
+  TICK=10
+elif [ "$MODE" = "main" ]; then
+  RUN_NAME=main_${EXP_NAME}
+  DURATION=5
+
   SNAP=50
-  TICK=1
+  TICK=10
+elif [ "$MODE" = "full" ]; then
+  RUN_NAME=full_${EXP_NAME}
+  DURATION=15
+  SNAP=100
+  TICK=10
+else
+  echo "Unknown mode: $MODE (use debug|probe|main|full)"
+  exit 1
+
 fi
 
 TIME_TAG=$(date +"%Y%m%d_%H%M%S")
@@ -79,6 +89,8 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --cp_local_k=3 \
   --cp_global_k=4 \
   --cp_patch_size=64 \
+  --patch-list=16,32,64 \
+  --patch-probs=0.2,0.3,0.5 \
   --cp_depth=2 \
   --cp_num_heads=4 \
   --fp16=0 \

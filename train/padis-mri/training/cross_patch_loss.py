@@ -58,9 +58,13 @@ class CrossPatch_EDMLoss:
         self.cp_k=cp_k; self.cp_local_k=cp_local_k; self.cp_global_k=cp_global_k; self.cp_patch_size=cp_patch_size; self.cp_debug=cp_debug
     def __call__(self,net,images,patch_size,resolution,labels=None,augment_pipe=None):
         if augment_pipe is not None:
-            if self.cp_debug: warnings.warn('CrossPatch ignores augment_pipe for CP-64.')
-            else: raise RuntimeError('CrossPatch CP-64 does not support augment_pipe. Set --augment=0.')
-        clean,x_pos,coords=patchify_set(images,patch_size=self.cp_patch_size,K=self.cp_k,local_k=self.cp_local_k,global_k=self.cp_global_k,debug=self.cp_debug)
+            if self.cp_debug:
+                warnings.warn('CrossPatch ignores augment_pipe.')
+            else:
+                raise RuntimeError('CrossPatch does not support augment_pipe. Set --augment=0.')
+        clean, x_pos, coords = patchify_set(images, patch_size=patch_size, K=self.cp_k, local_k=self.cp_local_k,
+                                            global_k=self.cp_global_k, debug=self.cp_debug)
+
         B=images.shape[0]
         sigma=((torch.randn([B,1,1,1,1],device=images.device)*self.P_std)+self.P_mean).exp()
         weight=(sigma**2+self.sigma_data**2)/(sigma*self.sigma_data)**2

@@ -11,8 +11,9 @@ from .dataset import ImageFolderDatasetX
 def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network_kwargs={}, loss_kwargs={}, optimizer_kwargs={}, augment_kwargs=None,
     seed=0, batch_size=1, batch_gpu=1, total_kimg=200000, ema_halflife_kimg=500, ema_rampup_ratio=0.05, lr_rampup_kimg=10000,
     loss_scaling=1, kimg_per_tick=50, snapshot_ticks=50, state_dump_ticks=500, resume_pkl=None, resume_state_dump=None, resume_kimg=0,
-    cudnn_benchmark=True, pad_width=0, device=torch.device('cuda'), cp_patch_size=64, cp_k=8, cp_local_k=3, cp_global_k=4, cp_debug=False, **kwargs):
 
+
+    cudnn_benchmark=True, pad_width=0, device=torch.device('cuda'), cp_patch_size=64, cp_k=8, cp_local_k=3, cp_global_k=4, cp_debug=False, patch_list=None, patch_probs=None, **kwargs):
     np.random.seed((seed * dist.get_world_size() + dist.get_rank()) % (1 << 31))
     torch.manual_seed(np.random.randint(1 << 31))
     torch.backends.cudnn.benchmark = cudnn_benchmark
@@ -29,6 +30,11 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
 
     net = dnnlib.util.construct_class_by_name(**network_kwargs, img_resolution=cp_patch_size, img_channels=4, out_channels=2, label_dim=dataset_obj.label_dim)
     net.train().requires_grad_(True).to(device)
+
+    if patch_list is None:
+        patch_list = [16, 32, 64]
+    if patch_probs is None:
+        patch_probs = [0.2, 0.3, 0.5]
 
     loss_kwargs = dict(loss_kwargs)
     loss_kwargs.update(cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_patch_size=cp_patch_size, cp_debug=cp_debug)
@@ -50,7 +56,7 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
         optimizer.zero_grad(set_to_none=True)
         for round_idx in range(num_accumulation_rounds):
             with misc.ddp_sync(ddp, (round_idx == num_accumulation_rounds - 1)):
-                patch_size = cp_patch_size
+                patch_size = int(np.random.choice(patch_list, p=patch_probs))
                 batch_mul = 1
                 images, labels = next(dataset_iterator)
                 images = images.to(device).to(torch.float32)

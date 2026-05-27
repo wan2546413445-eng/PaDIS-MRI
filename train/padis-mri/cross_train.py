@@ -69,9 +69,8 @@ def parse_float_list(s):
 @click.option('--hash_channels', help='Number of hash embedding outputs', metavar='INT', type=int, default=1,
               show_default=True)
 @click.option('--pad_width', help='Width on all sides of zero padding', metavar='INT', type=int, required=True)
-@click.option('--patch-list', help='Comma-separated patch sizes, e.g. 96,192,384', type=str)
-@click.option('--patch-probs', help='Comma-separated probabilities for patch sizes, e.g. 0.2,0.3,0.5', type=str)
-# Main options.
+@click.option('--patch-list', help='Comma-separated patch sizes, e.g. 16,32,64', type=str, default='16,32,64', show_default=True)
+@click.option('--patch-probs', help='Comma-separated probabilities for patch sizes, e.g. 0.2,0.3,0.5', type=str, default='0.2,0.3,0.5', show_default=True)
 
 @click.option('--cp_k', type=click.IntRange(min=2), default=8, show_default=True)
 @click.option('--cp_local_k', type=click.IntRange(min=0), default=3, show_default=True)
@@ -161,15 +160,22 @@ def main(**kwargs):
     c.pad_width = opts.pad_width
     if opts.cp_k != 1 + opts.cp_local_k + opts.cp_global_k: raise click.ClickException(
         "cp_k must equal 1+cp_local_k+cp_global_k")
-    if opts.cp_patch_size != 64: raise click.ClickException("cp_patch_size must be 64 for CP-64")
+
     c.update(cp_k=opts.cp_k, cp_local_k=opts.cp_local_k, cp_global_k=opts.cp_global_k, cp_patch_size=opts.cp_patch_size,
              cp_num_heads=opts.cp_num_heads, cp_depth=opts.cp_depth, cp_eval_batch_size=opts.cp_eval_batch_size,
              cp_debug=opts.cp_debug)
 
-    if opts.patch_list is not None:
-        c.patch_list = parse_int_list(opts.patch_list)
-    if opts.patch_probs is not None:
-        c.patch_probs = parse_float_list(opts.patch_probs)
+    c.patch_list = parse_int_list(opts.patch_list)
+    c.patch_probs = parse_float_list(opts.patch_probs)
+    if len(c.patch_list) != len(c.patch_probs):
+        raise click.ClickException('patch_list and patch_probs must have the same length')
+    prob_sum = sum(c.patch_probs)
+    if prob_sum <= 0:
+        raise click.ClickException('patch_probs must sum to a positive value')
+    c.patch_probs = [p / prob_sum for p in c.patch_probs]
+    required_sizes = {16, 32, 64}
+    if not required_sizes.issubset(set(c.patch_list)):
+        raise click.ClickException('patch_list must include 16,32,64')
 
     # Validate dataset options.
     # try:
@@ -266,7 +272,7 @@ def main(**kwargs):
     cond_str = 'cond' if c.dataset_kwargs.use_labels else 'uncond'
     dtype_str = 'fp16' if c.network_kwargs.use_fp16 else 'fp32'
     dataset_name = 'aapm_3'
-    desc = f'cross-cp64-k8-local3-global4-cbase96-{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
+    desc = f'cross_patch_s16s32s64_k8_cbase96_b4_fp32-{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 
