@@ -92,7 +92,7 @@ def parse_float_list(s):
 # Hyperparameters.
 @click.option('--duration', help='Training duration', metavar='MIMG', type=click.FloatRange(min=0, min_open=True),
               default=200, show_default=True)
-@click.option('--batch', help='Total batch size', metavar='INT', type=click.IntRange(min=1), default=512,
+@click.option('--batch', help='Total batch size', metavar='INT', type=click.IntRange(min=1), default=1,
               show_default=True)
 @click.option('--batch-gpu', help='Limit batch size per GPU', metavar='INT', type=click.IntRange(min=1))
 @click.option('--cbase', help='Channel multiplier  [default: varies]', metavar='INT', type=int)
@@ -104,7 +104,7 @@ def parse_float_list(s):
 @click.option('--dropout', help='Dropout probability', metavar='FLOAT', type=click.FloatRange(min=0, max=1),
               default=0.13, show_default=True)
 @click.option('--augment', help='Augment probability', metavar='FLOAT', type=click.FloatRange(min=0, max=1),
-              default=0.12, show_default=True)
+              default=0.0, show_default=True)
 @click.option('--xflip', help='Enable dataset x-flips', metavar='BOOL', type=bool, default=False, show_default=True)
 @click.option('--implicit_mlp', help='encoding coordbefore sending to the conv', metavar='BOOL', type=bool,
               default=False, show_default=True)
@@ -188,12 +188,12 @@ def main(**kwargs):
     if opts.arch == 'ddpmpp':
         c.network_kwargs.update(model_type='SongUNet', embedding_type='positional', encoder_type='standard',
                                 decoder_type='standard')
-        c.network_kwargs.update(channel_mult_noise=1, resample_filter=[1, 1], model_channels=128,
-                                channel_mult=[2, 2, 2], hash_channels=c.hash_channels)
+        c.network_kwargs.update(channel_mult_noise=1, resample_filter=[1, 1], model_channels=96, channel_mult=[2, 2, 2],
+                                hash_channels=c.hash_channels)
     elif opts.arch == 'ncsnpp':
         c.network_kwargs.update(model_type='SongUNet', embedding_type='fourier', encoder_type='residual',
                                 decoder_type='standard')
-        c.network_kwargs.update(channel_mult_noise=2, resample_filter=[1, 3, 3, 1], model_channels=128,
+        c.network_kwargs.update(channel_mult_noise=2, resample_filter=[1, 3, 3, 1], model_channels=96,
                                 channel_mult=[2, 2, 2])
     else:
         assert opts.arch == 'adm'
@@ -217,6 +217,8 @@ def main(**kwargs):
     # Network options.
     if opts.cbase is not None:
         c.network_kwargs.model_channels = opts.cbase
+    else:
+        c.network_kwargs.model_channels = 96
     if opts.cres is not None:
         c.network_kwargs.channel_mult = opts.cres
     if opts.augment:

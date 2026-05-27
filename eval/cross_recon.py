@@ -131,9 +131,8 @@ def cross_dps2(
                 latents_pos,
                 None,
                 indices,
-                t_goal=0,
-                wrong=False, cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k,
-                cp_eval_batch_size=cp_eval_batch_size, cp_debug=cp_debug
+                cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_eval_batch_size=cp_eval_batch_size,
+                cp_debug=cp_debug
             )
 
             # Score function calculation
@@ -289,7 +288,7 @@ def dps_uncond(
             xr = torch.view_as_real(x_noisy.squeeze(1)).permute(0, 3, 1, 2)
             D_real = denoisedFromCrossPatchSets(net, xr, t_cur, latents_pos, None,
                                                 getIndices(spaced, patches, pad, psize),
-                                                t_goal=0, wrong=False)
+                                                cp_k=8, cp_local_k=3, cp_global_k=4)
             D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
 
             # 3) score

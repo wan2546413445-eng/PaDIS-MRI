@@ -354,6 +354,11 @@ class CrossDPSHyperEvaluator:
                 tag=tag,
                 save_intermediate=save_intermediate,
                 intermediate_every=intermediate_every,
+                cp_k=self.cp_k,
+                cp_local_k=self.cp_local_k,
+                cp_global_k=self.cp_global_k,
+                cp_eval_batch_size=self.cp_eval_batch_size,
+                cp_debug=self.cp_debug,
             )
             return recon, a, b, c, d, e, f
 
@@ -461,7 +466,7 @@ class CrossDPSHyperEvaluator:
                         save_dir=run_dir,
                         tag=f"{tag}_psize{psize}_{idx}"
                     )
-                    if algo.lower() == "padis":
+                    if algo.lower() in ("padis", "cross_padis"):
                         recon, _, psnr_val, _, ssim_val, _, nrmse_val = self.dps2_wrapper(**args)
                     else:
                         print(f"WARNING: Why are you sweeping patch sizes with algo={algo}?")
@@ -575,7 +580,7 @@ class CrossDPSHyperEvaluator:
                             save_dir=run_dir,
                             tag=tag_label,
                         )
-                        if algo.lower() == "padis":
+                        if algo.lower() in ("padis", "cross_padis"):
                             recon, _, psnr_val, _, ssim_val, _, nrmse_val = self.dps2_wrapper(
                                 **dict(args_common, pad=self.pad, psize=self.psize)
                             )
@@ -727,7 +732,7 @@ class CrossDPSHyperEvaluator:
                 for mask_seed in seed_list:
                     tag_label = f"{idx}_mask{mask_seed}"
 
-                    if algo.lower() == "padis":
+                    if algo.lower() in ("padis", "cross_padis"):
                         meas, gt, invop = self._load_sample(idx, seed_ind=mask_seed)
                         meas = meas.cuda(gpu_id)
                         gt = gt.cuda(gpu_id)
@@ -856,7 +861,7 @@ class CrossDPSHyperEvaluator:
                     invop.maps = invop.maps.cuda(gpu_id)
                     invop.mask = invop.mask.cuda(gpu_id)
 
-                if algo.lower() == "padis":
+                if algo.lower() in ("padis", "cross_padis"):
                     recon, _, recon_psnr, _, recon_ssim, _, recon_nrmse = self.dps2_wrapper(
                         inverse_op=invop,
                         measurement=meas,
@@ -968,7 +973,7 @@ class CrossDPSHyperEvaluator:
                 torch.manual_seed(seed)
 
                 # -- sample and save --
-                if algo == "padis":
+                if algo in ("padis", "cross_padis"):
                     recon, *_ = self.dps2_wrapper(
                         inverse_op=None,
                         measurement=None,
