@@ -147,10 +147,7 @@ def training_loop(
         with torch.no_grad():
             images = torch.zeros([batch_gpu, img_channels, net.img_resolution, net.img_resolution], device=device)
             sigma = torch.ones([batch_gpu], device=device)
-            # Global-context PaDIS may use extra conditioning channels:
-            # original PaDIS: 2 position channels; GC-PaDIS: x/y position + context channels.
-            cond_channels = hash_channels if hash_channels != 1 else 2
-            x_pos = torch.zeros([batch_gpu, cond_channels, net.img_resolution, net.img_resolution], device=device)
+            x_pos = torch.zeros([batch_gpu, 2, net.img_resolution, net.img_resolution], device=device)
             labels = torch.zeros([batch_gpu, net.label_dim], device=device)
             print(f"Shape of images: {images[:,:,pad_width:imsize+pad_width, pad_width:imsize+pad_width].shape}")  # Should be [batch_size, 2, 384, 384]
 
@@ -178,10 +175,7 @@ def training_loop(
         del data # conserve memory
     if resume_state_dump:
         dist.print0(f'Loading training state from "{resume_state_dump}"...')
-        try:
-            data = torch.load(resume_state_dump, map_location=torch.device('cpu'), weights_only=False)
-        except TypeError:
-            data = torch.load(resume_state_dump, map_location=torch.device('cpu'))
+        data = torch.load(resume_state_dump, map_location=torch.device('cpu'))
         misc.copy_params_and_buffers(src_module=data['net'], dst_module=net, require_all=True)
         optimizer.load_state_dict(data['optimizer_state'])
         del data # conserve memory
@@ -337,11 +331,28 @@ def training_loop(
             if dist.get_rank() == 0:
                 with open(os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl'), 'wb') as f:
                     pickle.dump(data, f)
-
-                # Disabled for GC-PaDIS.
-                # The original dps_uncond sampler only builds PaDIS position conditioning,
-                # while GC-PaDIS requires x/y position + low-res global context.
-                # Reconstruction/evaluation should be handled by eval_globalcond later.
+                    
+                samples_cplx = dps_uncond(
+                    net=ema,           # or net, but typically EMA is used for sampling
+                    batch_size=1,      # small batch
+                    resolution=384,    # match training
+                    psize=96,
+                    pad=96,
+                    num_steps=65,      # fewer steps for speed
+                    sigma_min=0.003,
+                    sigma_max=10,
+                    rho=7,
+                    device=device,
+                )
+                
+                samples_cpu = samples_cplx.cpu()
+                wandb_images = []
+                
+                for i, cplx_im in enumerate(samples_cpu):
+                    mag = torch.abs(cplx_im.squeeze(0)).numpy()
+                    wandb_images.append(wandb.Image(mag, caption=f"Uncond Sample {i} (mag)"))
+                    
+                wandb.log({"uncond_samples": wandb_images}, step=cur_nimg)
                         
             del data 
 
