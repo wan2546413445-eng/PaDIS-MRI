@@ -4,7 +4,7 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from torch_utils import persistence
 from torch.nn.functional import silu
-from training.networks import Linear, UNetBlock, SongUNet
+from .networks import Linear, UNetBlock, SongUNet
 
 @persistence.persistent_class
 class CrossPatchSongUNet(SongUNet):

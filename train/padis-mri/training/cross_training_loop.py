@@ -5,8 +5,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 import dnnlib
 from torch_utils import distributed as dist
 from torch_utils import training_stats, misc
-from training.cross_patch_loss import CrossPatch_EDMLoss
-from dataset import ImageFolderDatasetX
+from .cross_patch_loss import CrossPatch_EDMLoss
+from .dataset import ImageFolderDatasetX
 
 def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network_kwargs={}, loss_kwargs={}, optimizer_kwargs={}, augment_kwargs=None,
     seed=0, batch_size=1, batch_gpu=1, total_kimg=200000, ema_halflife_kimg=500, ema_rampup_ratio=0.05, lr_rampup_kimg=10000,
@@ -58,7 +58,7 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
 
                 loss = loss_fn(net=ddp, images=images, patch_size=patch_size, resolution=dataset_obj.resolution, labels=labels, augment_pipe=augment_pipe)
                 training_stats.report('Loss/loss', loss)
-                loss.sum().mul(loss_scaling / batch_gpu_total / batch_mul).backward()
+                loss.sum().mul(loss_scaling / batch_gpu_total / cp_k).backward()
 
         for g in optimizer.param_groups:
             g['lr'] = optimizer_kwargs['lr'] * min(cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1)
