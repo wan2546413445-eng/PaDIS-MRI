@@ -65,6 +65,7 @@ def cross_dps2(
         cp_global_k: int = 4,
         cp_eval_batch_size: int = 2,
         cp_debug: bool = False,
+        memory_safe: bool = True,
 ) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
     """
     PaDIS (patch DPS) MRI reconstruction with 10 inner sub-steps per sigma
@@ -119,37 +120,66 @@ def cross_dps2(
 
             # VE noise injection
             x_noisy = x + (t_cur * randn_like(x))
-            x_real_noisy = torch.view_as_real(
-                x_noisy.squeeze(1)
-            ).permute(0, 3, 1, 2)  # (B,2,H_pad,W_pad)
 
-            # Patch denoise -> 2ch real-valued (Re, Im)
-            D_real = denoisedFromCrossPatchSets(
-                net,
-                x_real_noisy,
-                t_cur,
-                latents_pos,
-                None,
-                indices,
-                cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_eval_batch_size=cp_eval_batch_size,
-                cp_debug=cp_debug
-            )
+            if memory_safe:
+                with torch.no_grad():
+                    x_real_noisy = torch.view_as_real(
+                        x_noisy.detach().squeeze(1)
+                    ).permute(0, 3, 1, 2)  # (B,2,H_pad,W_pad)
+                    D_real = denoisedFromCrossPatchSets(
+                        net,
+                        x_real_noisy,
+                        t_cur,
+                        latents_pos,
+                        None,
+                        indices,
+                        cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k,
+                        cp_eval_batch_size=cp_eval_batch_size,
+                        cp_debug=cp_debug
+                    )
+                D_real = D_real.detach()
+                D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
+                score = (D_cplx - x_noisy.detach()) / (t_cur ** 2)
 
-            # Score function calculation
-            D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
-            score = (D_cplx - x_noisy) / (t_cur ** 2)
+                cropped_x = x[:, :, pad:pad + w, pad:pad + w]
+                cropped_x_real = torch.view_as_real(cropped_x.squeeze(1)).permute(0, 3, 1, 2)
+                Ax = inverseop.forward(cropped_x_real)
+                residual = measurement - Ax
+                residual_flat = residual.reshape(x.shape[0], -1)
+                sse_ind = torch.norm(residual_flat, dim=-1) ** 2
+                sse = torch.sum(sse_ind)
+                likelihood_grad = torch.autograd.grad(outputs=sse, inputs=x)[0]
+            else:
+                x_real_noisy = torch.view_as_real(
+                    x_noisy.squeeze(1)
+                ).permute(0, 3, 1, 2)  # (B,2,H_pad,W_pad)
 
-            cropped_x0hat = D_real if pad == 0 else D_real[:, :, pad:pad + w, pad:pad + w]
+                # Patch denoise -> 2ch real-valued (Re, Im)
+                D_real = denoisedFromCrossPatchSets(
+                    net,
+                    x_real_noisy,
+                    t_cur,
+                    latents_pos,
+                    None,
+                    indices,
+                    cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_eval_batch_size=cp_eval_batch_size,
+                    cp_debug=cp_debug
+                )
 
-            # Forward + residual
-            Ax = inverseop.forward(cropped_x0hat)
-            residual = measurement - Ax
-            residual_flat = residual.reshape(x.shape[0], -1)
-            sse_ind = torch.norm(residual_flat, dim=-1) ** 2
-            sse = torch.sum(sse_ind)
+                # Score function calculation
+                D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
+                score = (D_cplx - x_noisy) / (t_cur ** 2)
+                cropped_x0hat = D_real if pad == 0 else D_real[:, :, pad:pad + w, pad:pad + w]
 
-            # Gradient of SSE w.r.t. x
-            likelihood_grad = torch.autograd.grad(outputs=sse, inputs=x)[0]
+                # Forward + residual
+                Ax = inverseop.forward(cropped_x0hat)
+                residual = measurement - Ax
+                residual_flat = residual.reshape(x.shape[0], -1)
+                sse_ind = torch.norm(residual_flat, dim=-1) ** 2
+                sse = torch.sum(sse_ind)
+
+                # Gradient of SSE w.r.t. x
+                likelihood_grad = torch.autograd.grad(outputs=sse, inputs=x)[0]
 
             # Measurement-consistency update
             x = x - (zeta / torch.sqrt(sse_ind)[:, None, None, None]) * likelihood_grad

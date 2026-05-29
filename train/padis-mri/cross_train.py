@@ -78,6 +78,7 @@ def parse_float_list(s):
 @click.option('--cp_patch_size', type=click.IntRange(min=1), default=64, show_default=True)
 @click.option('--cp_num_heads', type=click.IntRange(min=1), default=4, show_default=True)
 @click.option('--cp_depth', type=click.IntRange(min=1), default=2, show_default=True)
+@click.option('--cp_ffn_mult', type=click.IntRange(min=1), default=4, show_default=True)
 @click.option('--cp_eval_batch_size', type=click.IntRange(min=1), default=2, show_default=True)
 @click.option('--cp_debug', is_flag=True)
 @click.option('--outdir', help='Where to save the results', metavar='DIR', type=str, required=True)
@@ -161,9 +162,17 @@ def main(**kwargs):
     if opts.cp_k != 1 + opts.cp_local_k + opts.cp_global_k: raise click.ClickException(
         "cp_k must equal 1+cp_local_k+cp_global_k")
 
-    c.update(cp_k=opts.cp_k, cp_local_k=opts.cp_local_k, cp_global_k=opts.cp_global_k, cp_patch_size=opts.cp_patch_size,
-             cp_num_heads=opts.cp_num_heads, cp_depth=opts.cp_depth, cp_eval_batch_size=opts.cp_eval_batch_size,
-             cp_debug=opts.cp_debug)
+    c.update(
+        cp_k=opts.cp_k,
+        cp_local_k=opts.cp_local_k,
+        cp_global_k=opts.cp_global_k,
+        cp_patch_size=opts.cp_patch_size,
+        cp_num_heads=opts.cp_num_heads,
+        cp_depth=opts.cp_depth,
+        cp_ffn_mult=opts.cp_ffn_mult,
+        cp_eval_batch_size=opts.cp_eval_batch_size,
+        cp_debug=opts.cp_debug
+    )
 
     c.patch_list = parse_int_list(opts.patch_list)
     c.patch_probs = parse_float_list(opts.patch_probs)
@@ -237,7 +246,12 @@ def main(**kwargs):
         # c.network_kwargs.augment_dim = 6
     if opts.implicit_mlp:
         c.network_kwargs.implicit_mlp = True
-    c.network_kwargs.update(dropout=opts.dropout, use_fp16=opts.fp16)
+    c.network_kwargs.update(
+        cp_patch_size=opts.cp_patch_size,
+        cp_num_heads=opts.cp_num_heads,
+        cp_depth=opts.cp_depth,
+        cp_ffn_mult=opts.cp_ffn_mult,
+    )
 
     # Training options.
     c.total_kimg = max(int(opts.duration * 1000), 1)
@@ -272,7 +286,15 @@ def main(**kwargs):
     cond_str = 'cond' if c.dataset_kwargs.use_labels else 'uncond'
     dtype_str = 'fp16' if c.network_kwargs.use_fp16 else 'fp32'
     dataset_name = 'aapm_3'
-    desc = f'cross_patch_s16s32s64_k8_cbase96_b4_fp32-{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
+    desc = (
+        f'cross_patch_s16s32s64_k{opts.cp_k}'
+        f'_l{opts.cp_local_k}g{opts.cp_global_k}'
+        f'_d{opts.cp_depth}h{opts.cp_num_heads}ffn{opts.cp_ffn_mult}'
+        f'_cbase{c.network_kwargs.model_channels}'
+        f'_b{c.batch_size}_{dtype_str}'
+        f'-{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}'
+        f'-gpus{dist.get_world_size():d}'
+    )
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 

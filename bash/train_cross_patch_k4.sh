@@ -2,7 +2,7 @@
 set -e
 set -o pipefail
 
-GPU=2
+GPU=0
 NPROC=1
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
@@ -26,7 +26,7 @@ mkdir -p $LOG_DIR
 
 MODE=${1:-debug}
 
-EXP_NAME=cross_patch_s16s32s64_k4_d1h2ffn2_cbase96_b6_fp32
+EXP_NAME=cross_patch_s16s32s64_k8_cbase96_b4_fp32
 
 if [ "$MODE" = "debug" ]; then
   RUN_NAME=debug_${EXP_NAME}
@@ -108,13 +108,33 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --dump=$DUMP \
   --seed=2025 \
   "${RESUME_ARGS[@]}" \
-  --cp_k=8 \
-  --cp_local_k=3 \
-  --cp_global_k=4 \
+  --cp_k=4 \
+  --cp_local_k=1 \
+  --cp_global_k=2 \
   --cp_patch_size=64 \
   --patch-list=16,32,64 \
   --patch-probs=0.2,0.3,0.5 \
-  --cp_depth=2 \
-  --cp_num_heads=4 \
+  --cp_depth=1 \
+  --cp_num_heads=2 \
+  --cp_ffn_mult=2 \
   --fp16=0 \
   2>&1 | tee -a $LOG_FILE
+
+#结构名：cross_patch_s16s32s64_k4_depth1_h2_ffn2_cbase96_b6_fp32
+ #
+ #K 配置：
+ #cp_k = 4
+ #cp_local_k = 1
+ #cp_global_k = 2
+ #
+ #Transformer 配置：
+ #cp_depth = 1
+ #cp_num_heads = 2
+ #cp_ffn_mult = 2
+ #
+ #训练配置：
+ #batch = 6
+ #batch_gpu = 6
+ #patch-list = 16,32,64
+ #patch-probs = 0.2,0.3,0.5
+ #fp16 = 0

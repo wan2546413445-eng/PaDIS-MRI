@@ -1,4 +1,4 @@
-import os, sys, time, copy, json, pickle
+import os, sys, time, copy, json, pickle, re
 import numpy as np
 import torch
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
@@ -31,6 +31,24 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
     net = dnnlib.util.construct_class_by_name(**network_kwargs, img_resolution=cp_patch_size, img_channels=4, out_channels=2, label_dim=dataset_obj.label_dim)
     net.train().requires_grad_(True).to(device)
 
+    # Load network weights from a snapshot. This is used both for weight-only
+    # transfer and as the EMA initialization when --resume points to a
+    # training-state-xxxxxx.pt file.
+    if resume_pkl is not None:
+        if not os.path.isfile(resume_pkl):
+            raise FileNotFoundError(f'resume_pkl not found: {resume_pkl}')
+        dist.print0(f'Loading network weights from "{resume_pkl}"...')
+        with open(resume_pkl, 'rb') as f:
+            resume_data = pickle.load(f)
+        src = resume_data['ema'] if 'ema' in resume_data else resume_data['net']
+        misc.copy_params_and_buffers(src_module=src, dst_module=net, require_all=False)
+        del resume_data, src
+        if resume_kimg == 0:
+            match = re.search(r'network-snapshot-(\d+)\.pkl$', os.path.basename(resume_pkl))
+            if match is not None:
+                resume_kimg = int(match.group(1))
+        dist.print0(f'Network weights loaded. resume_kimg={resume_kimg}')
+
     if patch_list is None:
         patch_list = [16, 32, 64]
     if patch_probs is None:
@@ -45,6 +63,19 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
     augment_pipe = None if augment_kwargs is None else dnnlib.util.construct_class_by_name(**augment_kwargs)
     ddp = torch.nn.parallel.DistributedDataParallel(net, device_ids=[device], broadcast_buffers=False)
     ema = copy.deepcopy(net).eval().requires_grad_(False)
+
+    # Full training-state resume: restore optimizer state and raw net weights.
+    # cross_train.py maps --resume training-state-xxxxxx.pt to both
+    # resume_state_dump and the matching network-snapshot-xxxxxx.pkl.
+    if resume_state_dump is not None:
+        if not os.path.isfile(resume_state_dump):
+            raise FileNotFoundError(f'resume_state_dump not found: {resume_state_dump}')
+        dist.print0(f'Loading training state from "{resume_state_dump}"...')
+        state_data = torch.load(resume_state_dump, map_location=torch.device('cpu'))
+        misc.copy_params_and_buffers(src_module=state_data['net'], dst_module=net, require_all=True)
+        optimizer.load_state_dict(state_data['optimizer_state'])
+        del state_data
+        dist.print0('Training state loaded.')
 
     cur_nimg = resume_kimg * 1000
     cur_tick = 0
@@ -89,6 +120,9 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
             data = dict(ema=copy.deepcopy(ema).eval().requires_grad_(False), loss_fn=loss_fn)
             with open(os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl'), 'wb') as f:
                 pickle.dump(data, f)
+
+        if dist.get_rank() == 0 and (state_dump_ticks is not None) and (done or cur_tick % state_dump_ticks == 0) and cur_tick != 0:
+            torch.save(dict(net=net, optimizer_state=optimizer.state_dict()), os.path.join(run_dir, f'training-state-{cur_nimg//1000:06d}.pt'))
 
         cur_tick += 1
         tick_start_nimg = cur_nimg

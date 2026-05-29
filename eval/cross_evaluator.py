@@ -27,7 +27,7 @@ from dnnlib.util import configure_bart
 
 configure_bart()
 from bart import bart
-
+import traceback
 from inverse_operators import *
 from utils import fftmod, makeFigures
 from cross_recon import cross_dps2
@@ -301,6 +301,7 @@ class CrossDPSHyperEvaluator:
             save_intermediate: bool = False,
             intermediate_every: int = 10,
             inner_loops: int = 10,
+            memory_safe_eval: bool = False,
     ):
         """
         Args:
@@ -359,6 +360,7 @@ class CrossDPSHyperEvaluator:
                 cp_global_k=self.cp_global_k,
                 cp_eval_batch_size=self.cp_eval_batch_size,
                 cp_debug=self.cp_debug,
+                memory_safe=memory_safe_eval,
             )
             return recon, a, b, c, d, e, f
 
@@ -793,13 +795,28 @@ class CrossDPSHyperEvaluator:
                 if i % report_every == 0 or i == len(subset):
                     print(f"[GPU{gpu_id}] done {i}/{len(subset)} samples")
 
+        worker_errors = []
+        worker_error_lock = threading.Lock()
+
+        def guarded_worker(subset, gpu_id):
+            try:
+                worker(subset, gpu_id)
+            except Exception:
+                err_trace = traceback.format_exc()
+                print(err_trace)
+                with worker_error_lock:
+                    worker_errors.append((gpu_id, err_trace))
+
         threads = []
         for gpu, subset in zip(gpus, splits):
-            t = threading.Thread(target=worker, args=(subset, gpu))
+            t = threading.Thread(target=guarded_worker, args=(subset, gpu))
             t.start()
             threads.append(t)
         for t in threads:
             t.join()
+
+        if worker_errors:
+            raise RuntimeError(f"Uncertainty evaluation worker failed on GPUs: {[e[0] for e in worker_errors]}")
 
         print("Done with the uncertainty map generation.")
 
@@ -818,6 +835,7 @@ class CrossDPSHyperEvaluator:
             lam: float = 1e-4,
             save_intermediate: bool = False,
             intermediate_every: int = 10,
+            memory_safe_eval: bool = False,
     ):
         """
         Runs PaDIS-MRI on all 100 validation volumes, saves side-by-side figures,
@@ -875,6 +893,7 @@ class CrossDPSHyperEvaluator:
                         save_intermediate=save_intermediate,
                         intermediate_every=intermediate_every,
                         inner_loops=inner_loops,
+                        memory_safe_eval=memory_safe_eval,
                     )
                 elif algo.lower() == "edm":
                     recon, _, recon_psnr, _, recon_ssim, _, recon_nrmse = self.dps_edm_wrapper(
@@ -901,13 +920,28 @@ class CrossDPSHyperEvaluator:
                     s = np.std(local['psnr'])
                     print(f"[GPU{gpu_id}] {i}/{len(subset)} — PSNR {m:.2f}±{s:.2f}")
 
+        worker_errors = []
+        worker_error_lock = threading.Lock()
+
+        def guarded_worker(subset, gpu_id):
+            try:
+                worker(subset, gpu_id)
+            except Exception:
+                err_trace = traceback.format_exc()
+                print(err_trace)
+                with worker_error_lock:
+                    worker_errors.append((gpu_id, err_trace))
+
         threads = []
         for gpu, subset in zip(gpus, splits):
-            t = threading.Thread(target=worker, args=(subset, gpu))
+            t = threading.Thread(target=guarded_worker, args=(subset, gpu))
             t.start()
             threads.append(t)
         for t in threads:
             t.join()
+
+        if worker_errors:
+            raise RuntimeError(f"Evaluation worker failed on GPUs: {[e[0] for e in worker_errors]}")
 
         all_idx = sum((results[g]['idx'] for g in gpus), [])
         all_psnr = sum((results[g]['psnr'] for g in gpus), [])

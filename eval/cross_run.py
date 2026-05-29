@@ -10,6 +10,20 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import dnnlib
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(repo_root, 'train', 'padis-mri'))
+from torch_utils import persistence
+
+@persistence.import_hook
+def _fix_cross_checkpoint_source(meta):
+    if hasattr(meta, "module_src") and meta.module_src is not None:
+        meta.module_src = meta.module_src.replace(
+            "from .networks import Linear, UNetBlock, SongUNet",
+            "from training.networks import Linear, UNetBlock, SongUNet",
+        )
+        meta.module_src = meta.module_src.replace(
+            "isinstance(block, UNetBlock)",
+            "block.__class__.__name__ == 'UNetBlock'",
+        )
+    return meta
 
 from cross_evaluator import CrossDPSHyperEvaluator
 from utils import post_eval_normalize
@@ -85,6 +99,7 @@ def parse_args():
     p.add_argument("--cp_global_k", type=int, default=4)
     p.add_argument("--cp_eval_batch_size", type=int, default=2)
     p.add_argument("--cp_debug", action="store_true")
+    p.add_argument("--memory_safe_eval", action="store_true")
 
     # mask sweep
     p.add_argument("--run_sweep_masks", action="store_true")
@@ -200,6 +215,7 @@ def main():
             lam=args.lam,
             save_intermediate=args.save_intermediate,
             intermediate_every=args.intermediate_every,
+            memory_safe_eval=args.memory_safe_eval,
         )
         s = metrics['summary']
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")

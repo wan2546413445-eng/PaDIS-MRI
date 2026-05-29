@@ -4,22 +4,33 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from torch_utils import persistence
 from torch.nn.functional import silu
-from .networks import Linear, UNetBlock, SongUNet
+from training.networks import Linear, UNetBlock, SongUNet
+
+def _is_unet_block(block):
+    return block.__class__.__name__ == "UNetBlock"
+
 
 @persistence.persistent_class
 class CrossPatchSongUNet(SongUNet):
-    def __init__(self, *args, cp_num_heads=4, cp_depth=2, **kwargs):
+    def __init__(self, *args, cp_num_heads=4, cp_depth=2, cp_ffn_mult=4, **kwargs):
         super().__init__(*args, **kwargs)
         self.cp_num_heads = cp_num_heads
         self.cp_depth = cp_depth
+        self.cp_ffn_mult = cp_ffn_mult
+
         bottleneck = [m.out_channels for m in self.enc.values() if hasattr(m, 'out_channels')][-1]
         self.coord_proj = Linear(2, bottleneck)
         self.noise_proj = Linear(self.map_layer1.out_features, bottleneck)
         self.token_ln = torch.nn.LayerNorm(bottleneck)
-        enc_layer = torch.nn.TransformerEncoderLayer(d_model=bottleneck, nhead=cp_num_heads, dim_feedforward=bottleneck * 4, batch_first=True)
+
+        enc_layer = torch.nn.TransformerEncoderLayer(
+            d_model=bottleneck,
+            nhead=cp_num_heads,
+            dim_feedforward=bottleneck * cp_ffn_mult,
+            batch_first=True
+        )
         self.cross_attn = torch.nn.TransformerEncoder(enc_layer, num_layers=cp_depth)
         self.film = Linear(bottleneck, bottleneck * 2)
-
     def forward(self, x_in, noise_labels, patch_coords, class_labels=None, augment_labels=None):
         B, K, C, H, W = x_in.shape
         x = x_in.reshape(B * K, C, H, W)
@@ -32,7 +43,7 @@ class CrossPatchSongUNet(SongUNet):
 
         skips = []
         for block in self.enc.values():
-            x = block(x, emb) if isinstance(block, UNetBlock) else block(x)
+            x = block(x, emb) if _is_unet_block(block) else block(x)
             skips.append(x)
 
         D, h, w = x.shape[1], x.shape[2], x.shape[3]
@@ -46,7 +57,7 @@ class CrossPatchSongUNet(SongUNet):
         x = x * (1 + gamma[:, :, None, None]) + beta[:, :, None, None]
 
         for block in self.dec.values():
-            if isinstance(block, UNetBlock):
+            if _is_unet_block(block):
                 if x.shape[1] != block.in_channels:
                     x = torch.cat([x, skips.pop()], dim=1)
                 x = block(x, emb)
@@ -57,8 +68,17 @@ class CrossPatchSongUNet(SongUNet):
 
 @persistence.persistent_class
 class CrossPatch_EDMPrecond(torch.nn.Module):
-    def __init__(self, img_resolution=64, img_channels=4, out_channels=2, label_dim=0, use_fp16=False,
-                 sigma_data=0.5, cp_patch_size=64, cp_num_heads=4, cp_depth=2, **model_kwargs):
+    def __init__(self, img_resolution=64,
+                 img_channels=4,
+                 out_channels=2,
+                 label_dim=0,
+                 use_fp16=False,
+                 sigma_data=0.5,
+                 cp_patch_size=64,
+                 cp_num_heads=4,
+                 cp_ffn_mult=4,
+                 cp_depth=2,
+                 **model_kwargs):
         super().__init__()
         self.img_resolution = cp_patch_size
         self.img_channels = 2
@@ -77,6 +97,7 @@ class CrossPatch_EDMPrecond(torch.nn.Module):
             label_dim=label_dim,
             cp_num_heads=cp_num_heads,
             cp_depth=cp_depth,
+            cp_ffn_mult=cp_ffn_mult,
             **model_kwargs,
         )
 

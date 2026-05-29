@@ -46,9 +46,9 @@ CUDA_VISIBLE_DEVICES=$GPU python eval/cross_run.py \
   --zeta 3.0 \
   --steps 78 \
   --inner_loops 10 \
-  --cp_k 8 \
-  --cp_local_k 3 \
-  --cp_global_k 4 \
+  --cp_k 4 \
+  --cp_local_k 1 \
+  --cp_global_k 2 \
   --cp_eval_batch_size 64 \
   --memory_safe_eval \
   --save_dir $SAVE_DIR \
