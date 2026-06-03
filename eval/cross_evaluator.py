@@ -30,7 +30,8 @@ from bart import bart
 import traceback
 from inverse_operators import *
 from utils import fftmod, makeFigures
-from cross_recon import cross_dps2
+from cross_recon import cross_dps2, dps_uncond as cross_dps_uncond
+
 from recon import dps_uncond, dps_edm, dps_uncond_edm
 
 random.seed(123)
@@ -49,7 +50,7 @@ class CrossDPSHyperEvaluator:
                  psize: int,
                  val_count: int = 100,
                  seed: int = 123,
-                 sample_indices=None, cp_k=8, cp_local_k=3, cp_global_k=4, cp_eval_batch_size=2,
+                 sample_indices=None, cp_k=8, cp_local_k=3, cp_global_k=4, cp_context_mode='global_random', cp_overlap_ratio=0.5, cp_eval_batch_size=2,
                  cp_debug=False) -> None:
         """
         model: trained diffusion model (ema)
@@ -120,6 +121,8 @@ class CrossDPSHyperEvaluator:
         self.cp_k = cp_k;
         self.cp_local_k = cp_local_k;
         self.cp_global_k = cp_global_k;
+        self.cp_context_mode = cp_context_mode;
+        self.cp_overlap_ratio = cp_overlap_ratio;
         self.cp_eval_batch_size = cp_eval_batch_size;
         self.cp_debug = cp_debug
 
@@ -319,7 +322,7 @@ class CrossDPSHyperEvaluator:
             noisypsnr, denoisedpsnr, noisyssim, denoisedssim, noisynrmse, denoisednrmse: floats
         """
         if measurement is None:
-            recon = dps_uncond(
+            recon = cross_dps_uncond(
                 net=self.model,
                 batch_size=1,
                 resolution=self.image_size,
@@ -331,6 +334,13 @@ class CrossDPSHyperEvaluator:
                 rho=7,
                 device=self.device,
                 randn_like=torch.randn_like,
+                cp_k=self.cp_k,
+                cp_local_k=self.cp_local_k,
+                cp_global_k=self.cp_global_k,
+                cp_context_mode=self.cp_context_mode,
+                cp_overlap_ratio=self.cp_overlap_ratio,
+                cp_eval_batch_size=self.cp_eval_batch_size,
+
             )
 
             recon_cpu = recon.cpu()
@@ -358,6 +368,9 @@ class CrossDPSHyperEvaluator:
                 cp_k=self.cp_k,
                 cp_local_k=self.cp_local_k,
                 cp_global_k=self.cp_global_k,
+                cp_context_mode=self.cp_context_mode,
+                cp_overlap_ratio=self.cp_overlap_ratio,
+
                 cp_eval_batch_size=self.cp_eval_batch_size,
                 cp_debug=self.cp_debug,
                 memory_safe=memory_safe_eval,

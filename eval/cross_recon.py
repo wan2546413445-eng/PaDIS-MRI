@@ -63,6 +63,9 @@ def cross_dps2(
         cp_k: int = 8,
         cp_local_k: int = 3,
         cp_global_k: int = 4,
+        cp_context_mode: str = 'global_random',
+        cp_overlap_ratio: float = 0.5,
+
         cp_eval_batch_size: int = 2,
         cp_debug: bool = False,
         memory_safe: bool = True,
@@ -134,6 +137,7 @@ def cross_dps2(
                         None,
                         indices,
                         cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k,
+                        cp_context_mode=cp_context_mode, cp_overlap_ratio=cp_overlap_ratio,
                         cp_eval_batch_size=cp_eval_batch_size,
                         cp_debug=cp_debug
                     )
@@ -162,7 +166,7 @@ def cross_dps2(
                     latents_pos,
                     None,
                     indices,
-                    cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_eval_batch_size=cp_eval_batch_size,
+                    cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_context_mode=cp_context_mode, cp_overlap_ratio=cp_overlap_ratio, cp_eval_batch_size=cp_eval_batch_size,
                     cp_debug=cp_debug
                 )
 
@@ -276,6 +280,13 @@ def dps_uncond(
         rho=7,
         device='cuda',
         randn_like=torch.randn_like,
+        cp_k: int = 8,
+        cp_local_k: int = 3,
+        cp_global_k: int = 4,
+        cp_context_mode: str = 'global_random',
+        cp_overlap_ratio: float = 0.5,
+        cp_eval_batch_size: int = 2,
+
 ):
     net.eval()
 
@@ -318,7 +329,10 @@ def dps_uncond(
             xr = torch.view_as_real(x_noisy.squeeze(1)).permute(0, 3, 1, 2)
             D_real = denoisedFromCrossPatchSets(net, xr, t_cur, latents_pos, None,
                                                 getIndices(spaced, patches, pad, psize),
-                                                cp_k=8, cp_local_k=3, cp_global_k=4)
+                                                cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k,
+                                                cp_context_mode=cp_context_mode, cp_overlap_ratio=cp_overlap_ratio,
+                                                cp_eval_batch_size=cp_eval_batch_size)
+
             D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
 
             # 3) score

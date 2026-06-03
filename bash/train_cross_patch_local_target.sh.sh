@@ -2,7 +2,7 @@
 set -e
 set -o pipefail
 
-GPU=2
+GPU=0
 NPROC=1
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
@@ -15,9 +15,9 @@ SNR=32dB
 
 # Optional continuation controls. Leave both empty for a fresh run.
 # Exact resume, same as original PaDIS-MRI style:
-#   RESUME_STATE=/path/to/training-state-001000.pt bash bash/train_cross_patch.sh main
+#   RESUME_STATE=/path/to/training-state-001000.pt bash bash/train_cross_patch_local_target.sh main
 # Weight-only warm-start:
-#   TRANSFER_PKL=/path/to/network-snapshot-001000.pkl bash bash/train_cross_patch.sh main
+#   TRANSFER_PKL=/path/to/network-snapshot-001000.pkl bash bash/train_cross_patch_local_target.sh main
 RESUME_STATE=${RESUME_STATE:-}
 TRANSFER_PKL=${TRANSFER_PKL:-}
 
@@ -26,7 +26,7 @@ mkdir -p $LOG_DIR
 
 MODE=${1:-debug}
 
-EXP_NAME=cross_patch_s16s32s64_k8_l3g4_d2h4ffn4_cbase96_b6_fp32
+EXP_NAME=cross_patch_s16s32s64_k3_l2g0_contextoverlap_ov0.5_tloss1tmod1gate0_d1h2ffn2_cbase96_b6_fp32
 
 if [ "$MODE" = "debug" ]; then
   RUN_NAME=debug_${EXP_NAME}
@@ -43,9 +43,9 @@ elif [ "$MODE" = "probe" ]; then
 elif [ "$MODE" = "main" ]; then
   RUN_NAME=main_${EXP_NAME}
   DURATION=5
-  TICK=1
-  SNAP=100
-  DUMP=500
+  TICK=10
+  SNAP=10
+  DUMP=50
 elif [ "$MODE" = "full" ]; then
   RUN_NAME=full_${EXP_NAME}
   DURATION=15
@@ -108,13 +108,19 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --dump=$DUMP \
   --seed=2025 \
   "${RESUME_ARGS[@]}" \
-  --cp_k=8 \
-  --cp_local_k=3 \
-  --cp_global_k=4 \
+  --cp_k=3 \
+  --cp_local_k=2 \
+  --cp_global_k=0 \
+  --cp_context_mode=overlap \
+  --cp_overlap_ratio=0.5 \
+  --cp_target_only_loss=1 \
+  --cp_target_only_modulation=1 \
+  --cp_gate_init=0.0 \
   --cp_patch_size=64 \
   --patch-list=16,32,64 \
   --patch-probs=0.2,0.3,0.5 \
-  --cp_depth=2 \
-  --cp_num_heads=4 \
+  --cp_depth=1 \
+  --cp_num_heads=2 \
+  --cp_ffn_mult=2 \
   --fp16=0 \
   2>&1 | tee -a $LOG_FILE

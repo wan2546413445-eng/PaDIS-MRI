@@ -100,6 +100,9 @@ def parse_args():
     p.add_argument("--cp_eval_batch_size", type=int, default=2)
     p.add_argument("--cp_debug", action="store_true")
     p.add_argument("--memory_safe_eval", action="store_true")
+    p.add_argument("--cp_context_mode", type=str, choices=["global_random", "local_only", "overlap"],
+                   default="global_random")
+    p.add_argument("--cp_overlap_ratio", type=float, default=0.5)
 
     # mask sweep
     p.add_argument("--run_sweep_masks", action="store_true")
@@ -135,7 +138,7 @@ def main():
 
     sample_indices = parse_list(args.sample_indices, cast=int)
 
-    opt = CrossDPSHyperEvaluator(cp_k=args.cp_k, cp_local_k=args.cp_local_k, cp_global_k=args.cp_global_k, cp_eval_batch_size=args.cp_eval_batch_size, cp_debug=args.cp_debug,
+    opt = CrossDPSHyperEvaluator(cp_k=args.cp_k, cp_local_k=args.cp_local_k, cp_global_k=args.cp_global_k, cp_context_mode=args.cp_context_mode, cp_overlap_ratio=args.cp_overlap_ratio, cp_eval_batch_size=args.cp_eval_batch_size, cp_debug=args.cp_debug,
         model=model,
         mask_select=args.mask_select,
         val_dir=args.val_dir,

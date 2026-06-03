@@ -12,11 +12,14 @@ def _is_unet_block(block):
 
 @persistence.persistent_class
 class CrossPatchSongUNet(SongUNet):
-    def __init__(self, *args, cp_num_heads=4, cp_depth=2, cp_ffn_mult=4, **kwargs):
+    def __init__(self, *args, cp_num_heads=4, cp_depth=2, cp_ffn_mult=4, cp_target_only_modulation=False, cp_gate_init=1.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.cp_num_heads = cp_num_heads
         self.cp_depth = cp_depth
         self.cp_ffn_mult = cp_ffn_mult
+
+        self.cp_target_only_modulation = cp_target_only_modulation
+        self.cp_gate = torch.nn.Parameter(torch.tensor(float(cp_gate_init)))
 
         bottleneck = [m.out_channels for m in self.enc.values() if hasattr(m, 'out_channels')][-1]
         self.coord_proj = Linear(2, bottleneck)
@@ -54,7 +57,16 @@ class CrossPatchSongUNet(SongUNet):
         tokens = self.cross_attn(self.token_ln(tokens))
 
         gamma, beta = self.film(tokens.reshape(B * K, D)).chunk(2, dim=1)
-        x = x * (1 + gamma[:, :, None, None]) + beta[:, :, None, None]
+        gamma = gamma * self.cp_gate
+        beta = beta * self.cp_gate
+        if self.cp_target_only_modulation:
+            x = x.reshape(B, K, D, h, w)
+            gamma = gamma.reshape(B, K, D)
+            beta = beta.reshape(B, K, D)
+            target = x[:, :1] * (1 + gamma[:, :1, :, None, None]) + beta[:, :1, :, None, None]
+            x = torch.cat([target, x[:, 1:]], dim=1).reshape(B * K, D, h, w)
+        else:
+            x = x * (1 + gamma[:, :, None, None]) + beta[:, :, None, None]
 
         for block in self.dec.values():
             if _is_unet_block(block):
@@ -78,6 +90,9 @@ class CrossPatch_EDMPrecond(torch.nn.Module):
                  cp_num_heads=4,
                  cp_ffn_mult=4,
                  cp_depth=2,
+                 cp_target_only_modulation=False,
+                 cp_gate_init=1.0,
+
                  **model_kwargs):
         super().__init__()
         self.img_resolution = cp_patch_size
@@ -98,6 +113,9 @@ class CrossPatch_EDMPrecond(torch.nn.Module):
             cp_num_heads=cp_num_heads,
             cp_depth=cp_depth,
             cp_ffn_mult=cp_ffn_mult,
+            cp_target_only_modulation=cp_target_only_modulation,
+            cp_gate_init=cp_gate_init,
+
             **model_kwargs,
         )
 

@@ -76,6 +76,11 @@ def parse_float_list(s):
 @click.option('--cp_local_k', type=click.IntRange(min=0), default=3, show_default=True)
 @click.option('--cp_global_k', type=click.IntRange(min=0), default=4, show_default=True)
 @click.option('--cp_patch_size', type=click.IntRange(min=1), default=64, show_default=True)
+@click.option('--cp_context_mode', type=click.Choice(['global_random', 'local_only', 'overlap']), default='global_random', show_default=True)
+@click.option('--cp_target_only_loss', type=bool, default=False, show_default=True)
+@click.option('--cp_overlap_ratio', type=click.FloatRange(min=0, max=1), default=0.5, show_default=True)
+@click.option('--cp_target_only_modulation', type=bool, default=False, show_default=True)
+@click.option('--cp_gate_init', type=float, default=1.0, show_default=True)
 @click.option('--cp_num_heads', type=click.IntRange(min=1), default=4, show_default=True)
 @click.option('--cp_depth', type=click.IntRange(min=1), default=2, show_default=True)
 @click.option('--cp_ffn_mult', type=click.IntRange(min=1), default=4, show_default=True)
@@ -167,6 +172,12 @@ def main(**kwargs):
         cp_local_k=opts.cp_local_k,
         cp_global_k=opts.cp_global_k,
         cp_patch_size=opts.cp_patch_size,
+        cp_context_mode=opts.cp_context_mode,
+        cp_target_only_loss=opts.cp_target_only_loss,
+        cp_overlap_ratio=opts.cp_overlap_ratio,
+        cp_target_only_modulation=opts.cp_target_only_modulation,
+        cp_gate_init=opts.cp_gate_init,
+
         cp_num_heads=opts.cp_num_heads,
         cp_depth=opts.cp_depth,
         cp_ffn_mult=opts.cp_ffn_mult,
@@ -247,10 +258,15 @@ def main(**kwargs):
     if opts.implicit_mlp:
         c.network_kwargs.implicit_mlp = True
     c.network_kwargs.update(
+        dropout=opts.dropout,
+        use_fp16=opts.fp16,
         cp_patch_size=opts.cp_patch_size,
         cp_num_heads=opts.cp_num_heads,
         cp_depth=opts.cp_depth,
         cp_ffn_mult=opts.cp_ffn_mult,
+        cp_target_only_modulation=opts.cp_target_only_modulation,
+        cp_gate_init=opts.cp_gate_init,
+
     )
 
     # Training options.
@@ -289,6 +305,8 @@ def main(**kwargs):
     desc = (
         f'cross_patch_s16s32s64_k{opts.cp_k}'
         f'_l{opts.cp_local_k}g{opts.cp_global_k}'
+        f'_context{opts.cp_context_mode}'
+        f'_tloss{int(opts.cp_target_only_loss)}tmod{int(opts.cp_target_only_modulation)}gate{opts.cp_gate_init:g}'
         f'_d{opts.cp_depth}h{opts.cp_num_heads}ffn{opts.cp_ffn_mult}'
         f'_cbase{c.network_kwargs.model_channels}'
         f'_b{c.batch_size}_{dtype_str}'

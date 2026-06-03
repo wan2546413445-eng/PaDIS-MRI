@@ -7,20 +7,20 @@ GPU=0
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
 
-MODEL_PATH=$RESULT_ROOT/PaDIS-MRI-runs/training-runs-cross/main_cross_patch_s16s32s64_k4_d1h2ffn2_cbase96_b6_fp32/00003-cross_patch_s16s32s64_k4_l1g2_d1h2ffn2_cbase96_b12_fp32-aapm_3-uncond-ddpmpp-pedm-gpus1/network-snapshot-005000.pkl
+MODEL_PATH=$RESULT_ROOT/PaDIS-MRI-runs/training-runs-cross/main_cross_patch_s16s32s64_k3_l2g0_contextoverlap_ov0.5_tloss1tmod1gate0_d1h2ffn2_cbase96_b6_fp32/network-snapshot-001900.pkl
 
 VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB
 
-SAVE_DIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/cross_patch_k4_5000k_s78_i10_sample1
+SAVE_DIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/cross_patch_local_target_k3_1900k_s78_i10_val1
 LOG_DIR=$RESULT_ROOT/results_record/logs
 mkdir -p $SAVE_DIR
 mkdir -p $LOG_DIR
 
 TIME_TAG=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE=$LOG_DIR/eval_cross_patch_k4_5000k_s78_i10_sample1_gpu${GPU}_${TIME_TAG}.log
+LOG_FILE=$LOG_DIR/eval_cross_patch_local_target_k3_1900k_s78_i10_val1_gpu${GPU}_${TIME_TAG}.log
 
 echo "==================================================" | tee $LOG_FILE
-echo "Cross-Patch PaDIS-MRI Eval Debug" | tee -a $LOG_FILE
+echo "Cross-Patch PaDIS-MRI Eval Local Target" | tee -a $LOG_FILE
 echo "GPU=$GPU" | tee -a $LOG_FILE
 echo "MODEL_PATH=$MODEL_PATH" | tee -a $LOG_FILE
 echo "VAL_DIR=$VAL_DIR" | tee -a $LOG_FILE
@@ -46,9 +46,11 @@ CUDA_VISIBLE_DEVICES=$GPU python eval/cross_run.py \
   --zeta 3.0 \
   --steps 78 \
   --inner_loops 10 \
-  --cp_k 4 \
-  --cp_local_k 1 \
-  --cp_global_k 2 \
+  --cp_k 3 \
+  --cp_local_k 2 \
+  --cp_global_k 0 \
+  --cp_context_mode overlap \
+  --cp_overlap_ratio 0.5 \
   --cp_eval_batch_size 64 \
   --memory_safe_eval \
   --save_dir $SAVE_DIR \

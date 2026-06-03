@@ -13,7 +13,7 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
     loss_scaling=1, kimg_per_tick=50, snapshot_ticks=50, state_dump_ticks=500, resume_pkl=None, resume_state_dump=None, resume_kimg=0,
 
 
-    cudnn_benchmark=True, pad_width=0, device=torch.device('cuda'), cp_patch_size=64, cp_k=8, cp_local_k=3, cp_global_k=4, cp_debug=False, patch_list=None, patch_probs=None, **kwargs):
+    cudnn_benchmark=True, pad_width=0, device=torch.device('cuda'), cp_patch_size=64, cp_k=8, cp_local_k=3, cp_global_k=4, cp_context_mode='global_random', cp_target_only_loss=False, cp_overlap_ratio=0.5, cp_debug=False, patch_list=None, patch_probs=None, **kwargs):
     np.random.seed((seed * dist.get_world_size() + dist.get_rank()) % (1 << 31))
     torch.manual_seed(np.random.randint(1 << 31))
     torch.backends.cudnn.benchmark = cudnn_benchmark
@@ -55,7 +55,7 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
         patch_probs = [0.2, 0.3, 0.5]
 
     loss_kwargs = dict(loss_kwargs)
-    loss_kwargs.update(cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_patch_size=cp_patch_size, cp_debug=cp_debug)
+    loss_kwargs.update(cp_k=cp_k, cp_local_k=cp_local_k, cp_global_k=cp_global_k, cp_patch_size=cp_patch_size, cp_context_mode=cp_context_mode, cp_target_only_loss=cp_target_only_loss, cp_overlap_ratio=cp_overlap_ratio, cp_debug=cp_debug)
     loss_fn = dnnlib.util.construct_class_by_name(**loss_kwargs)
     assert isinstance(loss_fn, CrossPatch_EDMLoss)
 
@@ -71,7 +71,7 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
         if not os.path.isfile(resume_state_dump):
             raise FileNotFoundError(f'resume_state_dump not found: {resume_state_dump}')
         dist.print0(f'Loading training state from "{resume_state_dump}"...')
-        state_data = torch.load(resume_state_dump, map_location=torch.device('cpu'))
+        state_data = torch.load(resume_state_dump, map_location=torch.device('cpu'),weights_only=False)
         misc.copy_params_and_buffers(src_module=state_data['net'], dst_module=net, require_all=True)
         optimizer.load_state_dict(state_data['optimizer_state'])
         del state_data
@@ -95,7 +95,8 @@ def training_loop(run_dir='.', dataset_kwargs={}, data_loader_kwargs={}, network
 
                 loss = loss_fn(net=ddp, images=images, patch_size=patch_size, resolution=dataset_obj.resolution, labels=labels, augment_pipe=augment_pipe)
                 training_stats.report('Loss/loss', loss)
-                loss.sum().mul(loss_scaling / batch_gpu_total / cp_k).backward()
+                loss_divisor = 1 if cp_target_only_loss else cp_k
+                loss.sum().mul(loss_scaling / batch_gpu_total / loss_divisor).backward()
 
         for g in optimizer.param_groups:
             g['lr'] = optimizer_kwargs['lr'] * min(cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1)

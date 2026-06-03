@@ -149,14 +149,15 @@ def main(args):
 
         norm_val = normalization_const_from_ksp(fs_ksp)
         epsilon = 1e-9
-        
+        #gt和recon除同一个ACS算出来的归一化常数，epsilon防止除0
         gt_norm = torch.abs(gt) / (norm_val + epsilon)
         recon_norm = torch.abs(recon) / (norm_val + epsilon)
-        
+        #转换为2维numpy图像计算指标
         gt_norm_2d = gt_norm.squeeze().cpu().numpy()
         recon_norm_2d = recon_norm.squeeze().cpu().numpy()
         
         data_range_norm = gt_norm_2d.max() - gt_norm_2d.min()
+        #归一化后GT图像的动态范围计算psnr和ssim
         val_nrmse = nrmse(gt_norm_2d, recon_norm_2d)
         val_psnr = psnr(gt_norm_2d, recon_norm_2d, data_range=data_range_norm)
         val_ssim = ssim(gt_norm_2d, recon_norm_2d, data_range=data_range_norm)

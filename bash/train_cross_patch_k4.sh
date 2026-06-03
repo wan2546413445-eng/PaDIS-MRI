@@ -15,9 +15,9 @@ SNR=32dB
 
 # Optional continuation controls. Leave both empty for a fresh run.
 # Exact resume, same as original PaDIS-MRI style:
-#   RESUME_STATE=/path/to/training-state-001000.pt bash bash/train_cross_patch.sh main
+#   RESUME_STATE=/path/to/training-state-001000.pt bash bash/train_cross_patch_k4.sh main
 # Weight-only warm-start:
-#   TRANSFER_PKL=/path/to/network-snapshot-001000.pkl bash bash/train_cross_patch.sh main
+#   TRANSFER_PKL=/path/to/network-snapshot-001000.pkl bash bash/train_cross_patch_k4.sh main
 RESUME_STATE=${RESUME_STATE:-}
 TRANSFER_PKL=${TRANSFER_PKL:-}
 
@@ -26,7 +26,7 @@ mkdir -p $LOG_DIR
 
 MODE=${1:-debug}
 
-EXP_NAME=cross_patch_s16s32s64_k8_cbase96_b4_fp32
+EXP_NAME=cross_patch_s16s32s64_k4_l1g2_d1h2ffn2_cbase96_b6_fp32
 
 if [ "$MODE" = "debug" ]; then
   RUN_NAME=debug_${EXP_NAME}
@@ -43,9 +43,9 @@ elif [ "$MODE" = "probe" ]; then
 elif [ "$MODE" = "main" ]; then
   RUN_NAME=main_${EXP_NAME}
   DURATION=5
-  TICK=10
-  SNAP=10
-  DUMP=50
+  TICK=1
+  SNAP=100
+  DUMP=500
 elif [ "$MODE" = "full" ]; then
   RUN_NAME=full_${EXP_NAME}
   DURATION=15
@@ -94,8 +94,8 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --cond=0 \
   --arch=ddpmpp \
   --precond=pedm \
-  --batch=6 \
-  --batch-gpu=6 \
+  --batch=12 \
+  --batch-gpu=12 \
   --cbase=96 \
   --lr=1e-4 \
   --dropout=0.05 \
@@ -120,8 +120,7 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --fp16=0 \
   2>&1 | tee -a $LOG_FILE
 
-#结构名：cross_patch_s16s32s64_k4_depth1_h2_ffn2_cbase96_b6_fp32
- #
+#结构名：cross_patch_s16s32s64_k4_l1g2_d1h2ffn2_cbase96_b6_fp32
  #K 配置：
  #cp_k = 4
  #cp_local_k = 1

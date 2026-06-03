@@ -9,39 +9,65 @@ def _coord_token(i, j, ps, H, W, device):
     return torch.tensor([(cx / (W - 1) - 0.5) * 2.0, (cy / (H - 1) - 0.5) * 2.0], device=device, dtype=torch.float32)
 
 
-def _sample_context(target_i, target_j, H, W, ps, cp_k, cp_local_k, cp_global_k):
+def _sample_context(target_i, target_j, H, W, ps, cp_k, cp_local_k, cp_global_k, cp_context_mode='global_random', cp_overlap_ratio=0.5):
     coords = [(target_i, target_j)]
     max_i, max_j = H - ps, W - ps
-    jitter = max(1, ps // 2)
+    if cp_context_mode == 'global_random':
+        jitter = max(1, ps // 2)
+        tries = 0
+        while len(coords) < 1 + cp_local_k and tries < 200:
+            tries += 1
+            ni = max(0, min(max_i, target_i + random.randint(-jitter, jitter)))
+            nj = max(0, min(max_j, target_j + random.randint(-jitter, jitter)))
+            if (ni, nj) not in coords:
+                coords.append((ni, nj))
+        while len(coords) < 1 + cp_local_k:
+            coords.append((target_i, target_j))
 
-    tries = 0
-    while len(coords) < 1 + cp_local_k and tries < 200:
-        tries += 1
-        ni = max(0, min(max_i, target_i + random.randint(-jitter, jitter)))
-        nj = max(0, min(max_j, target_j + random.randint(-jitter, jitter)))
-        if (ni, nj) not in coords:
-            coords.append((ni, nj))
-    while len(coords) < 1 + cp_local_k:
-        coords.append((target_i, target_j))
+        far = ps
+        tries = 0
+        while len(coords) < cp_k and tries < 400:
+            tries += 1
+            gi = random.randint(0, max_i)
+            gj = random.randint(0, max_j)
+            if (gi, gj) in coords:
+                continue
+            if abs(gi - target_i) + abs(gj - target_j) < far:
+                continue
+            coords.append((gi, gj))
+        while len(coords) < cp_k:
+            coords.append((target_i, target_j))
+    elif cp_context_mode == 'local_only':
+        jitter = max(1, ps // 2)
+        tries = 0
+        while len(coords) < cp_k and tries < 400:
+            tries += 1
+            ni = max(0, min(max_i, target_i + random.randint(-jitter, jitter)))
+            nj = max(0, min(max_j, target_j + random.randint(-jitter, jitter)))
+            if (ni, nj) not in coords:
+                coords.append((ni, nj))
+        while len(coords) < cp_k:
+            coords.append((target_i, target_j))
+    elif cp_context_mode == 'overlap':
+        jitter = max(0, int(round(ps * (1.0 - cp_overlap_ratio))))
+        tries = 0
+        while len(coords) < cp_k and tries < 400:
+            tries += 1
+            ni = max(0, min(max_i, target_i + random.randint(-jitter, jitter)))
+            nj = max(0, min(max_j, target_j + random.randint(-jitter, jitter)))
+            if (ni, nj) not in coords:
+                coords.append((ni, nj))
+        while len(coords) < cp_k:
+            coords.append((target_i, target_j))
+    else:
+        raise ValueError(f'Unknown cp_context_mode: {cp_context_mode}')
 
-    far = ps
-    tries = 0
-    while len(coords) < cp_k and tries < 400:
-        tries += 1
-        gi = random.randint(0, max_i)
-        gj = random.randint(0, max_j)
-        if (gi, gj) in coords:
-            continue
-        if abs(gi - target_i) + abs(gj - target_j) < far:
-            continue
-        coords.append((gi, gj))
-    while len(coords) < cp_k:
-        coords.append((target_i, target_j))
     return coords
 
 
 def denoisedFromCrossPatchSets(net, x_hat, t_hat, latents_pos, class_labels, indices,
-                               cp_k=8, cp_local_k=3, cp_global_k=4, cp_eval_batch_size=2, cp_debug=False):
+                               cp_k=8, cp_local_k=3, cp_global_k=4, cp_context_mode='global_random', cp_overlap_ratio=0.5, cp_eval_batch_size=2, cp_debug=False):
+
     assert cp_k == 1 + cp_local_k + cp_global_k
     device = x_hat.device
     _, C, H, W = x_hat.shape
@@ -59,7 +85,7 @@ def denoisedFromCrossPatchSets(net, x_hat, t_hat, latents_pos, class_labels, ind
 
         for bi, z in enumerate(chunk):
             ti, tj = z[0], z[2]
-            coords = _sample_context(ti, tj, H, W, ps, cp_k, cp_local_k, cp_global_k)
+            coords = _sample_context(ti, tj, H, W, ps, cp_k, cp_local_k, cp_global_k, cp_context_mode, cp_overlap_ratio)
             for k, (i, j) in enumerate(coords):
                 patch_set[bi, k] = x_hat[0, :, i:i + ps, j:j + ps]
                 patch_pos[bi, k] = latents_pos[0, :, i:i + ps, j:j + ps]
