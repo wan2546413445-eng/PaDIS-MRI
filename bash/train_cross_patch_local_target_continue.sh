@@ -2,7 +2,7 @@
 set -e
 set -o pipefail
 
-GPU=0
+GPU=1
 NPROC=1
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
@@ -26,7 +26,11 @@ mkdir -p $LOG_DIR
 
 MODE=${1:-debug}
 
-EXP_NAME=cross_patch_s16s32s64_k3_l2g0_contextoverlap_ov0.5_tloss1tmod1gate0_d1h2ffn2_cbase96_b6_fp32
+EXP_NAME=cross_patch_s16s32s64_k3_l2g0_contextoverlap_ov0.5_tloss1tmod1gate0_d1h2ffn2_cbase96_b16_fp32
+
+#tloss1tmod1gate0：loss 只主要监督 target patch，不让 context patch 同等参与训练目标，只调制 target patch 的 bottleneck feature，context patch 只提供信息，一开始不强行引入 cross-patch 调制，避免破坏原 PaDIS 局部 prior
+#contextoverlap：context patch 从 target 周围重叠区域采样，ov0.5：大约半重叠邻域，目标是让 context 更贴近边界连续性
+#d1h2ffn2：depth=1，head=2，FFN倍率=2，是轻量 token 交互
 
 if [ "$MODE" = "debug" ]; then
   RUN_NAME=debug_${EXP_NAME}
@@ -94,8 +98,8 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --cond=0 \
   --arch=ddpmpp \
   --precond=pedm \
-  --batch=6 \
-  --batch-gpu=6 \
+  --batch=16 \
+  --batch-gpu=16 \
   --cbase=96 \
   --lr=1e-4 \
   --dropout=0.05 \
@@ -106,7 +110,7 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --tick=$TICK \
   --snap=$SNAP \
   --dump=$DUMP \
-  --seed=2025 \
+  --seed=123 \
   "${RESUME_ARGS[@]}" \
   --cp_k=3 \
   --cp_local_k=2 \

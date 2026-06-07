@@ -2,25 +2,27 @@
 set -e
 set -o pipefail
 
-GPU=0
+GPU=4
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
 
-MODEL_PATH=$RESULT_ROOT/PaDIS-MRI-runs/training-runs-cross/main_cross_patch_s16s32s64_k3_l2g0_contextoverlap_ov0.5_tloss1tmod1gate0_d1h2ffn2_cbase96_b6_fp32/network-snapshot-001900.pkl
+# 改成你实际训练得到的 snapshot。
+MODEL_PATH=$RESULT_ROOT/PaDIS-MRI-runs/training-runs-agg-overlap/main_agg_overlap_fixed64_ov16_lam005_cbase128_b64_fp32/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch64-fp32-agg_overlap_fixed64_ov16_lam005_cbase128_b64_fp32-agg_overlap-ov16-lam0.05/network-snapshot-005000.pkl
 
 VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB
 
-SAVE_DIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/cross_patch_local_target_k3_1900k_s78_i10_val1
+SAVE_DIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/agg_overlap_fixed64_lam005_5000k_s78_i10_val18
 LOG_DIR=$RESULT_ROOT/results_record/logs
+
 mkdir -p $SAVE_DIR
 mkdir -p $LOG_DIR
 
 TIME_TAG=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE=$LOG_DIR/eval_cross_patch_local_target_k3_1900k_s78_i10_val1_gpu${GPU}_${TIME_TAG}.log
+LOG_FILE=$LOG_DIR/eval_agg_overlap_fixed64_lam005_5000k_s78_i10_val18_gpu${GPU}_${TIME_TAG}.log
 
 echo "==================================================" | tee $LOG_FILE
-echo "Cross-Patch PaDIS-MRI Eval Local Target" | tee -a $LOG_FILE
+echo "Aggregation-Aware Overlap PaDIS-MRI Eval" | tee -a $LOG_FILE
 echo "GPU=$GPU" | tee -a $LOG_FILE
 echo "MODEL_PATH=$MODEL_PATH" | tee -a $LOG_FILE
 echo "VAL_DIR=$VAL_DIR" | tee -a $LOG_FILE
@@ -32,9 +34,9 @@ cd $CODE_ROOT
 export PYTHONPATH=$CODE_ROOT/train/padis-mri:$PYTHONPATH
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-CUDA_VISIBLE_DEVICES=$GPU python eval/cross_run.py \
+CUDA_VISIBLE_DEVICES=$GPU python eval/run.py \
   --run_evaluate \
-  --algo cross_padis \
+  --algo padis \
   --model_path $MODEL_PATH \
   --val_dir $VAL_DIR \
   --image_size 384 \
@@ -42,16 +44,9 @@ CUDA_VISIBLE_DEVICES=$GPU python eval/cross_run.py \
   --psize 64 \
   --mask_select 7 \
   --val_count 1 \
-  --sample_indices 1 \
+  --sample_indices 18 \
   --zeta 3.0 \
   --steps 78 \
   --inner_loops 10 \
-  --cp_k 3 \
-  --cp_local_k 2 \
-  --cp_global_k 0 \
-  --cp_context_mode overlap \
-  --cp_overlap_ratio 0.5 \
-  --cp_eval_batch_size 64 \
-  --memory_safe_eval \
   --save_dir $SAVE_DIR \
   2>&1 | tee -a $LOG_FILE

@@ -89,7 +89,7 @@ class CrossPatch_EDMLoss:
         self.cp_debug = cp_debug
 
 
-def __call__(self,net,images,patch_size,resolution,labels=None,augment_pipe=None):
+    def __call__(self,net,images,patch_size,resolution,labels=None,augment_pipe=None):
         if augment_pipe is not None:
             if self.cp_debug:
                 warnings.warn('CrossPatch ignores augment_pipe.')
