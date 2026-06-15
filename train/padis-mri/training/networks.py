@@ -717,7 +717,7 @@ class Patch_EDMPrecond(torch.nn.Module):
         use_fp16        = False,            # Execute the underlying model at FP16 precision?
         sigma_min       = 0,                # Minimum supported noise level.
         sigma_max       = float('inf'),     # Maximum supported noise level.
-        sigma_data      = 0.1627,              # Expected standard deviation of the training data.
+        sigma_data      = 0.5,              # Expected standard deviation of the training data.
         model_type      = 'DhariwalUNet',   # Class name of the underlying model.
         four_channels = 1,
         hash_channels = 1,

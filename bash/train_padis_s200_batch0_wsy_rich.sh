@@ -11,7 +11,7 @@ NPROC=1
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
-ROOT_OUTDIR=$RESULT_ROOT/PaDIS-MRI-runs/baseline_training-runs_sigma1627_full
+ROOT_OUTDIR=$RESULT_ROOT/PaDIS-MRI-runs/baseline_training-runs_sigma16_full
 ROOT_DATA=/mnt/SSD/wsy/data/fastmri_train_batch0_pilot/brain_train_d384_s200
 LOG_DIR=$RESULT_ROOT/results_record/logs
 
@@ -19,7 +19,7 @@ ANATOMY=brain
 SNR=32dB
 
 MAIN_BATCH_SIZE=2
-DEBUG_BATCH_SIZE=1
+
 BATCH_SIZE=$MAIN_BATCH_SIZE
 LR=1e-4
 DROPOUT=0.05
@@ -30,6 +30,9 @@ PATCH_SIZES=16,32,64
 PROBS=0.2,0.3,0.5
 WORKERS=4
 SEED=123
+SIGMA_DATA=0.16
+P_MEAN=-2.34
+P_STD=1.2
 
 # Optional continuation controls. Leave both empty for a fresh run.
 # Exact resume:
@@ -44,21 +47,17 @@ mkdir -p "$LOG_DIR"
 
 MODE=${1:-debug}
 
-
 if [ "$MODE" = "debug" ]; then
-  RUN_NAME=debug_${EXP_NAME}
   DURATION=0.01
   TICK=1
   SNAP=1
   DUMP=1
 elif [ "$MODE" = "probe" ]; then
-  RUN_NAME=probe_${EXP_NAME}
   DURATION=1
   TICK=1
   SNAP=10
   DUMP=10
 elif [ "$MODE" = "main" ]; then
-  RUN_NAME=main_${EXP_NAME}
   DURATION=200
   TICK=5
   SNAP=200
@@ -68,7 +67,7 @@ else
   exit 1
 fi
 
-EXP_NAME=baseline_sigma1627_full_s16s32s64_p020305_b${BATCH_SIZE}_seed${SEED}
+EXP_NAME=baseline_sigma16_full_s16s32s64_p020305_b${BATCH_SIZE}_seed${SEED}
 RUN_NAME=${MODE}_${EXP_NAME}
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
 DATA_DIR=$ROOT_DATA/$SNR
@@ -86,7 +85,7 @@ fi
 
 GIT_BRANCH=$(git branch --show-current 2>/dev/null || true)
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || true)
-SIGMA_DATA_LINE=$(grep -n "sigma_data" train/padis-mri/training/patch_loss.py | head -n 1 || true)
+
 
 {
   echo "=================================================="
@@ -103,6 +102,9 @@ SIGMA_DATA_LINE=$(grep -n "sigma_data" train/padis-mri/training/patch_loss.py | 
   echo "RESUME_STATE=$RESUME_STATE"
   echo "TRANSFER_PKL=$TRANSFER_PKL"
   echo "CODE_ROOT=$CODE_ROOT"
+  echo "SIGMA_DATA=$SIGMA_DATA"
+  echo "P_MEAN=$P_MEAN"
+  echo "P_STD=$P_STD"
   echo "RESULT_ROOT=$RESULT_ROOT"
   echo "LOG_FILE=$LOG_FILE"
   echo "OUTDIR=$OUTDIR"
@@ -121,11 +123,11 @@ SIGMA_DATA_LINE=$(grep -n "sigma_data" train/padis-mri/training/patch_loss.py | 
   echo "SEED=$SEED"
   echo "GIT_BRANCH=$GIT_BRANCH"
   echo "GIT_COMMIT=$GIT_COMMIT"
-  echo "SIGMA_DATA_LINE=$SIGMA_DATA_LINE"
+
   echo "=================================================="
 } | tee "$LOG_FILE"
 
-CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/padis-mri/train.py \
+CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/padis-mri/train_sigma016.py \
   --outdir=$OUTDIR \
   --data=$DATA_DIR \
   --cond=0 \
@@ -139,6 +141,9 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --tick=$TICK \
   --snap=$SNAP \
   --dump=$DUMP \
+  --sigma-data=$SIGMA_DATA \
+  --p-mean=$P_MEAN \
+  --p-std=$P_STD \
   --precond=pedm \
   --seed=$SEED \
   --pad_width=$PAD_WIDTH \
