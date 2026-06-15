@@ -78,11 +78,13 @@ def _put_overlap(aux_overlap, horizontal, patch_size, overlap):
 
 def _boundary_distances(horizontal, patch_size, overlap, device, dtype):
     coords = torch.arange(patch_size, device=device, dtype=dtype)
-    dist = torch.minimum(coords, (patch_size - 1) - coords)
-    d1_h = dist[-overlap:].view(1, 1, 1, overlap).repeat(horizontal.shape[0], 1, patch_size, 1)
-    d2_h = dist[:overlap].view(1, 1, 1, overlap).repeat(horizontal.shape[0], 1, patch_size, 1)
-    d1_v = dist[-overlap:].view(1, 1, overlap, 1).repeat(horizontal.shape[0], 1, 1, patch_size).transpose(2, 3)
-    d2_v = dist[:overlap].view(1, 1, overlap, 1).repeat(horizontal.shape[0], 1, 1, patch_size).transpose(2, 3)
+    row_dist = torch.minimum(coords, (patch_size - 1) - coords).view(1, 1, patch_size, 1)
+    col_dist = torch.minimum(coords, (patch_size - 1) - coords).view(1, 1, 1, patch_size)
+    dist = torch.minimum(row_dist, col_dist)
+    d1_h = dist[:, :, :, -overlap:].repeat(horizontal.shape[0], 1, 1, 1)
+    d2_h = dist[:, :, :, :overlap].repeat(horizontal.shape[0], 1, 1, 1)
+    d1_v = dist[:, :, -overlap:, :].transpose(2, 3).repeat(horizontal.shape[0], 1, 1, 1)
+    d2_v = dist[:, :, :overlap, :].transpose(2, 3).repeat(horizontal.shape[0], 1, 1, 1)
     mask = horizontal.view(-1, 1, 1, 1)
     return torch.where(mask, d1_h, d1_v), torch.where(mask, d2_h, d2_v)
 
@@ -104,6 +106,7 @@ class SameNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         select = torch.randperm(full_batch, device=images.device)[:selected_batch]
         clean_full = images[select]
         labels_sel = labels[select] if labels is not None else None
+        augment_labels_sel = augment_labels[select] if augment_labels is not None else None
         top1, left1, top2, left2, horizontal, overlap = _sample_overlap_geometry(clean_full, patch_size)
         sigma = (torch.randn([selected_batch, 1, 1, 1], device=images.device) * self.P_std + self.P_mean).exp()
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
@@ -112,7 +115,7 @@ class SameNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         noisy1, noisy2 = _extract_patches(noisy_full, top1, left1, patch_size), _extract_patches(noisy_full, top2, left2, patch_size)
         pos1 = _position_maps(top1, left1, selected_batch, patch_size, resolution, images.device)
         pos2 = _position_maps(top2, left2, selected_batch, patch_size, resolution, images.device)
-        D = net(torch.cat([noisy1, noisy2], 0), torch.cat([sigma, sigma], 0), x_pos=torch.cat([pos1, pos2], 0), class_labels=torch.cat([labels_sel, labels_sel], 0) if labels_sel is not None else None, augment_labels=torch.cat([augment_labels, augment_labels], 0) if augment_labels is not None else None)
+        D = net(torch.cat([noisy1, noisy2], 0), torch.cat([sigma, sigma], 0), x_pos=torch.cat([pos1, pos2], 0), class_labels=torch.cat([labels_sel, labels_sel], 0) if labels_sel is not None else None, augment_labels=torch.cat([augment_labels_sel, augment_labels_sel], 0) if augment_labels_sel is not None else None)
         D1, D2 = D[:selected_batch], D[selected_batch:]
         edm_loss = weight * (D1 - clean1).square() + weight * (D2 - clean2).square()
         D1_o, D2_o = _overlap_views(D1, D2, horizontal, overlap)
@@ -130,7 +133,7 @@ class SameNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         training_stats.report('Loss/edm', edm_loss.detach())
         training_stats.report('Loss/overlap_same', aux_overlap.detach())
         training_stats.report('Loss/overlap_same_weighted', (self.lambda_overlap * aux_full).detach())
-        training_stats.report('Loss/overlap_same_active_fraction', gate.detach().mean())
+        training_stats.report('Loss/overlap_same_active_fraction', ((gate > 0) & (conf > 0)).to(images.dtype).detach().mean())
         training_stats.report('Loss/overlap_same_ratio', ((self.lambda_overlap * aux_full).detach().mean() / edm_loss.detach().mean().clamp_min(1e-12)))
         return edm_loss + self.lambda_overlap * aux_full
 
@@ -148,7 +151,7 @@ class DifferentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             augment_labels = None
         full_batch = images.shape[0]; selected_batch = full_batch // 2
         select = torch.randperm(full_batch, device=images.device)[:selected_batch]
-        clean_full = images[select]; labels_sel = labels[select] if labels is not None else None
+        clean_full = images[select]; labels_sel = labels[select] if labels is not None else None; augment_labels_sel = augment_labels[select] if augment_labels is not None else None
         top1, left1, top2, left2, horizontal, overlap = _sample_overlap_geometry(clean_full, patch_size)
         sigma_a = (torch.randn([selected_batch, 1, 1, 1], device=images.device) * self.P_std + self.P_mean).exp()
         sigma_b = (torch.randn([selected_batch, 1, 1, 1], device=images.device) * self.P_std + self.P_mean).exp()
@@ -162,7 +165,7 @@ class DifferentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         sigma1, sigma2 = torch.where(swap, sigma_high, sigma_low), torch.where(swap, sigma_low, sigma_high)
         clean1, clean2 = _extract_patches(clean_full, top1, left1, patch_size), _extract_patches(clean_full, top2, left2, patch_size)
         pos1 = _position_maps(top1, left1, selected_batch, patch_size, resolution, images.device); pos2 = _position_maps(top2, left2, selected_batch, patch_size, resolution, images.device)
-        D = net(torch.cat([noisy1, noisy2], 0), torch.cat([sigma1, sigma2], 0), x_pos=torch.cat([pos1, pos2], 0), class_labels=torch.cat([labels_sel, labels_sel], 0) if labels_sel is not None else None, augment_labels=torch.cat([augment_labels, augment_labels], 0) if augment_labels is not None else None)
+        D = net(torch.cat([noisy1, noisy2], 0), torch.cat([sigma1, sigma2], 0), x_pos=torch.cat([pos1, pos2], 0), class_labels=torch.cat([labels_sel, labels_sel], 0) if labels_sel is not None else None, augment_labels=torch.cat([augment_labels_sel, augment_labels_sel], 0) if augment_labels_sel is not None else None)
         D1, D2 = D[:selected_batch], D[selected_batch:]
         w1 = (sigma1 ** 2 + self.sigma_data ** 2) / (sigma1 * self.sigma_data) ** 2; w2 = (sigma2 ** 2 + self.sigma_data ** 2) / (sigma2 * self.sigma_data) ** 2
         edm_loss = w1 * (D1 - clean1).square() + w2 * (D2 - clean2).square()

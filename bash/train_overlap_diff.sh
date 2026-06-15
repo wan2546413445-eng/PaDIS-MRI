@@ -5,7 +5,7 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 
 GPU=${GPU:-1}
 NPROC=1
-CODE_ROOT=${CODE_ROOT:-/workspace/PaDIS-MRI}
+CODE_ROOT=${CODE_ROOT:-/mnt/SSD/wsy/projects/PaDIS-MRI-main}
 RESULT_ROOT=${RESULT_ROOT:-/mnt/SSD2/wsy/PaDIS-MRI}
 ROOT_OUTDIR=$RESULT_ROOT/PaDIS-MRI-runs/overlap_diff_training-runs
 ROOT_DATA=${ROOT_DATA:-/mnt/SSD/wsy/data/fastmri_train_batch0_pilot/brain_train_d384_s200}
