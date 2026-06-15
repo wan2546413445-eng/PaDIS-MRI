@@ -41,22 +41,22 @@ def make_pos(i, j, patch_size, resolution):
 @persistence.persistent_class
 class AggOverlapPatch_EDMLoss(Patch_EDMLoss):
     def __init__(
-        self,
-        P_mean=-1.2,
-        P_std=1.2,
-        sigma_data=0.5,
-        agg_lambda=0.05,
-        overlap=16,
+            self,
+            P_mean=-1.2,
+            P_std=1.2,
+            sigma_data=0.5,
+            agg_lambda=0.05,
+            overlap_ratio=0.25,
     ):
         super().__init__(P_mean=P_mean, P_std=P_std, sigma_data=sigma_data)
         self.agg_lambda = agg_lambda
-        self.overlap = overlap
+        self.overlap_ratio = overlap_ratio
 
     def __call__(self, net, images, patch_size, resolution, labels=None, augment_pipe=None):
         B = images.shape[0]
         device = images.device
         P = patch_size
-        O = self.overlap
+        O = max(1, int(P * self.overlap_ratio))
         stride = P - O
         h, w = images.shape[2], images.shape[3]
 

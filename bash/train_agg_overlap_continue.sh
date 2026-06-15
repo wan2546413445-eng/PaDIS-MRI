@@ -26,8 +26,7 @@ mkdir -p $LOG_DIR
 
 MODE=${1:-debug}
 
-EXP_NAME=agg_overlap_fixed64_ov16_lam005_cbase128_b64_fp32
-
+EXP_NAME=agg_overlap_s16s32s64_ovr025_lam005_cbase96_b16_fp32
 # agg_overlap:
 # 两个水平相邻 overlapping patches 独立去噪，只在 overlap 区域约束 denoised prediction 一致性。
 # 不做 cross-patch interaction，不做 K4/K8，不做 token mixer，不做 whole-image loss。
@@ -100,9 +99,9 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --cond=0 \
   --arch=ddpmpp \
   --precond=pedm \
-  --batch=64 \
-  --batch-gpu=64 \
-  --cbase=128 \
+  --batch=16 \
+  --batch-gpu=1 \
+  --cbase=96 \
   --lr=1e-4 \
   --dropout=0.13 \
   --augment=0 \
@@ -114,9 +113,9 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --dump=$DUMP \
   --seed=123 \
   "${RESUME_ARGS[@]}" \
-  --patch-list=64 \
-  --patch-probs=1.0 \
+  --patch-list=16,32,64 \
+  --patch-probs=0.2,0.3,0.5 \
   --agg-lambda=0.05 \
-  --agg-overlap=16 \
+  --agg-overlap-ratio=0.25 \
   --fp16=0 \
   2>&1 | tee -a $LOG_FILE

@@ -72,9 +72,12 @@ def dps2(
     """
 
     net.eval()
-    w = latents.shape[-1]
-    patches = w // psize + 1
+    w = latents.shape[-1]#w = 原始图像宽度 = N
+    patches = w // psize + 1#每个方向上切多少个 patch 起点
+    #如patches=384//64+1=6+1=7.
     spaced = np.linspace(0, (patches - 1) * psize, patches, dtype=int)
+    #spaced = np.linspace(0, 384, 7, dtype=int)
+    #spaced = [0, 64, 128, 192, 256, 320, 384]；没有随机 offset 时的 patch 起点列表
 
     x_init = inverseop.adjoint(measurement).detach()
     x = torch.nn.functional.pad(x_init, (pad, pad, pad, pad), "constant", 0)  # complex
@@ -100,24 +103,28 @@ def dps2(
     # Main posterior sampling loop
     # ------------------------------------------------------------------
     for i, (t_cur, t_next) in tqdm.tqdm(
+        #同时获取t_cur噪声强度，t_next下一个强度
         enumerate(zip(t_steps[:-1], t_steps[1:])),
         total=len(t_steps) - 1
     ):
         t_cur = t_cur.float()
         alpha = 0.5 * t_cur ** 2
-
         for j in range(inner_loops):
+            #inner_loops = 10；每个噪声层内部重复更新次数
+            #每个 inner loop 会随机采样一次 patch offset，因此同一个噪声层下可以看到不同的 patch 划分。
             indices = getIndices(spaced, patches, pad, psize)
+            #spaced = [0, 64, 128, 192, 256, 320, 384]；patches = 7；pad = 64；psize = 64
+            #每次 inner loop 都随机选一个偏移 (a,b)，然后根据这个偏移裁剪整张图的 patch。
             x = x.detach().requires_grad_(True)
-
             # VE noise injection
+            #Score-based SDE 的反向采样不是一步预测 clean image，而是在不同噪声水平下逐步根据 score 修正图像。
             x_noisy = x + (t_cur * randn_like(x))
             x_real_noisy = torch.view_as_real(
                 x_noisy.squeeze(1)
-            ).permute(0, 3, 1, 2)  # (B,2,H_pad,W_pad)
-
+            ).permute(0, 3, 1, 2)
+            # [B, 1, H, W]--[B, H, W]--[B, H, W, 2]--(B,2,H_pad,W_pad)
             # Patch denoise -> 2ch real-valued (Re, Im)
-            D_real = denoisedFromPatches(
+            D_real = denoisedFromPatches(#调用算法2
                 net,
                 x_real_noisy,
                 t_cur,
@@ -129,28 +136,30 @@ def dps2(
             )
 
             # Score function calculation
-            D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)
+            D_cplx = torch.complex(D_real[:, 0], D_real[:, 1]).unsqueeze(1)#real/imag 转回 complex
             score = (D_cplx - x_noisy) / (t_cur ** 2)
-
-            cropped_x0hat = D_real if pad == 0 else D_real[:, :, pad:pad+w, pad:pad+w]
+            #D_real裁掉padding；取长度为 w =N的中心区域
+            cropped_x0hat = D_real if pad == 0 else D_real[:, :, pad:pad+w, pad:pad+w]#clean image estimate
 
             # Forward + residual
-            Ax = inverseop.forward(cropped_x0hat)
-            residual = measurement - Ax
-            residual_flat = residual.reshape(x.shape[0], -1)
-            sse_ind = torch.norm(residual_flat, dim=-1) ** 2
-            sse = torch.sum(sse_ind)
+            Ax = inverseop.forward(cropped_x0hat)#A=PFS
+            residual = measurement - Ax#当前与测量值的残差
+            residual_flat = residual.reshape(x.shape[0], -1)#把r拉平
+            sse_ind = torch.norm(residual_flat, dim=-1) ** 2#每个 batch 单独算平方范数
+            sse = torch.sum(sse_ind)#batch 内所有样本求和；sum of squared errors
 
-            # Gradient of SSE w.r.t. x
+            # Gradient of SSE w.r.t. x；要让 SSE 变小，当前变量 x 应该往哪个方向调整。
             likelihood_grad = torch.autograd.grad(outputs=sse, inputs=x)[0]
 
             # Measurement-consistency update
+            # zeta：data consistency 强度超参数，默认设置为3.0
+            # sqrt(sse_ind)：对 batch 中每个样本单独归一化。
             x = x - (zeta / torch.sqrt(sse_ind)[:, None, None, None]) * likelihood_grad
 
-            # Diffusion step
-            if i < num_steps - 1:
+            # Diffusion step：当前图像如何更符合 learned MRI image prior
+            if i < num_steps - 1:#如果还没到最后一个噪声层，就继续加随机噪声
                 x = x + (alpha / 2) * score + torch.sqrt(alpha) * randn_like(x)
-            else:
+            else:#如果已经是最后一步，就不再加噪声
                 x = x + (alpha / 2) * score
 
             if verbose:

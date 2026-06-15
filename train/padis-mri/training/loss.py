@@ -69,7 +69,7 @@ class VELoss:
 # of Diffusion-Based Generative Models" (EDM).
 
 @persistence.persistent_class
-class EDMLoss:
+class EDMLoss:#给 clean patch 加噪声，让网络恢复 clean patch。
     def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5):
         self.P_mean = P_mean
         self.P_std = P_std
@@ -77,11 +77,17 @@ class EDMLoss:
 
     def __call__(self, net, images, labels=None, augment_pipe=None):
         rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
+        #ξ∼N(0,1)，标准正态随机数
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+        #通过线性变换得到一个随机的 log‑noise，.exp()转回噪声标准差
+        #EDM 训练时不是均匀采样 σ，而是在 log-space 中采样噪声强度。这样可以覆盖低噪声、中噪声、高噪声区间。
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
+        #不同噪声强度下，denoising loss 的数值尺度不同，所以 EDM 用这个权重平衡不同 σ 区间的训练贡献。
         y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
-        n = torch.randn_like(y) * sigma
+        n = torch.randn_like(y) * sigma#加高斯噪声
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
+        #D_yn 是 denoised image，labels是 patch 的位置编码
+
         loss = weight * ((D_yn - y) ** 2)
         return loss
 

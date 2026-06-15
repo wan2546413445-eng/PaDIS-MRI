@@ -717,7 +717,7 @@ class Patch_EDMPrecond(torch.nn.Module):
         use_fp16        = False,            # Execute the underlying model at FP16 precision?
         sigma_min       = 0,                # Minimum supported noise level.
         sigma_max       = float('inf'),     # Maximum supported noise level.
-        sigma_data      = 0.5,              # Expected standard deviation of the training data.
+        sigma_data      = 0.1627,              # Expected standard deviation of the training data.
         model_type      = 'DhariwalUNet',   # Class name of the underlying model.
         four_channels = 1,
         hash_channels = 1,
@@ -738,19 +738,21 @@ class Patch_EDMPrecond(torch.nn.Module):
         self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=self.out_channels, label_dim=label_dim, **model_kwargs)
 
     def forward(self, x, sigma, x_pos=None, class_labels=None, force_fp32=False, **model_kwargs):
+        #输入noisy patch和sigma
         x = x.to(torch.float32)
         sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
         class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
         dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
-
+        #根据 sigma 算四个缩放系数
         c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
         c_out = sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2).sqrt()
         c_in = 1 / (self.sigma_data ** 2 + sigma ** 2).sqrt()
         c_noise = sigma.log() / 4
-
+        #把 noisy patch 缩放后，和位置编码拼起来，送进 U-Net
         x_in = torch.cat([c_in * x, x_pos], dim=1) if x_pos is not None else c_in * x
         F_x = self.model((x_in).to(dtype), c_noise.flatten(), class_labels=class_labels, **model_kwargs)
         assert F_x.dtype == dtype
+        #把 U-Net 输出 F_x 和原始 noisy patch x 混合，得到 denoised patch
         D_x = c_skip * x + c_out * F_x.to(torch.float32)
         return D_x
 

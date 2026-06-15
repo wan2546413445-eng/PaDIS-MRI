@@ -220,12 +220,16 @@ class DPSHyperEvaluator:
             device=self.device
         )
 
-        resolution = self.image_size + 2*pad
+        resolution = self.image_size + 2*pad#N′=N+2M.
+        #生成横向和纵向的一维坐标向量
         x = torch.linspace(-1, 1, resolution, device=self.device)
         y = torch.linspace(-1, 1, resolution, device=self.device)
+        #横纵向坐标复制成一张N′*N′坐标图，每一行/列都从 −1 变化到 1
         x_pos = x.view(1, -1).repeat(resolution, 1)
         y_pos = y.view(-1, 1).repeat(1, resolution)
+        #合成两通道位置编码pos.shape = [2, N', N']
         pos = torch.stack([x_pos, y_pos], dim=0)  # [2, R, R]
+        #self.latents_pos.shape = [1, 2, N', N']，加入batch,神经网络输入要求
         self.latents_pos = pos.unsqueeze(0)       # [1, 2, R, R]
 
     

@@ -72,7 +72,7 @@ def parse_float_list(s):
 @click.option('--patch-list', help='Comma-separated patch sizes, e.g. 96,192,384', type=str)
 @click.option('--patch-probs', help='Comma-separated probabilities for patch sizes, e.g. 0.2,0.3,0.5', type=str)
 @click.option('--agg-lambda', type=float, default=0.05, show_default=True)
-@click.option('--agg-overlap', type=int, default=16, show_default=True)
+@click.option('--agg-overlap-ratio', type=float, default=0.25, show_default=True)
 # Main options.
 @click.option('--outdir', help='Where to save the results', metavar='DIR', type=str, required=True)
 @click.option('--data', help='Path to the dataset', metavar='ZIP|DIR', type=str, required=True)
@@ -197,7 +197,7 @@ def main(**kwargs):
         c.network_kwargs.class_name = 'training.networks.Patch_EDMPrecond'
         c.loss_kwargs.class_name = 'training.patch_loss_agg.AggOverlapPatch_EDMLoss'
         c.loss_kwargs.agg_lambda = opts.agg_lambda
-        c.loss_kwargs.overlap = opts.agg_overlap
+        c.loss_kwargs.overlap_ratio = opts.agg_overlap_ratio
     else:
         assert opts.precond == 'edm'
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
@@ -254,7 +254,7 @@ def main(**kwargs):
     desc = f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
     if opts.desc is not None:
         desc += f'-{opts.desc}'
-    desc += f'-agg_overlap-ov{opts.agg_overlap}-lam{opts.agg_lambda}'
+    desc += f'-agg_overlap-ovr{opts.agg_overlap_ratio}-lam{opts.agg_lambda}'
 
     # Pick output directory.
     if dist.get_rank() != 0:

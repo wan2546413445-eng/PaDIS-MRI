@@ -7,19 +7,19 @@ GPU=4
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
 
-# 改成你实际训练得到的 snapshot。
-MODEL_PATH=$RESULT_ROOT/PaDIS-MRI-runs/training-runs-agg-overlap/main_agg_overlap_fixed64_ov16_lam005_cbase128_b64_fp32/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch64-fp32-agg_overlap_fixed64_ov16_lam005_cbase128_b64_fp32-agg_overlap-ov16-lam0.05/network-snapshot-005000.pkl
+# 改成你实际训练得到的 snapshot
+MODEL_PATH=$RESULT_ROOT/PaDIS-MRI-runs/training-runs-agg-overlap/main_agg_overlap_s16s32s64_ovr025_lam005_cbase96_b16_fp32/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch16-fp32-agg_overlap-ovr0.25-lam0.05/network-snapshot-005000.pkl
 
 VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB
 
-SAVE_DIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/agg_overlap_fixed64_lam005_5000k_s78_i10_val18
+SAVE_DIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/agg_overlap/agg_overlap_fixed64_lam005_5000k_s78_i10_val_all
 LOG_DIR=$RESULT_ROOT/results_record/logs
 
 mkdir -p $SAVE_DIR
 mkdir -p $LOG_DIR
 
 TIME_TAG=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE=$LOG_DIR/eval_agg_overlap_fixed64_lam005_5000k_s78_i10_val18_gpu${GPU}_${TIME_TAG}.log
+LOG_FILE=$LOG_DIR/eval_agg_overlap_fixed64_lam005_5000k_s78_i10_val_all_gpu${GPU}_${TIME_TAG}.log
 
 echo "==================================================" | tee $LOG_FILE
 echo "Aggregation-Aware Overlap PaDIS-MRI Eval" | tee -a $LOG_FILE
@@ -43,8 +43,8 @@ CUDA_VISIBLE_DEVICES=$GPU python eval/run.py \
   --pad 96 \
   --psize 64 \
   --mask_select 7 \
-  --val_count 1 \
-  --sample_indices 18 \
+  --val_count 32 \
+  --sample_indices 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31 \
   --zeta 3.0 \
   --steps 78 \
   --inner_loops 10 \

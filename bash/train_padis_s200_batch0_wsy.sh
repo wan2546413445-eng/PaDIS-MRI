@@ -5,7 +5,7 @@ GPU=0
 NPROC=1
 ANATOMY=brain                                # brain
 SNR=32dB                                     # 32dB SNR (average PSNR in FastMRI brain dataset) – indicates no additional noise added
-ROOT_OUTDIR=/mnt/SSD/wsy/projects/PaDIS-MRI-main/training-runs        # root directory of where to save model checkpoints
+ROOT_OUTDIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/baseline_training-runs_sigma1627        # root directory of where to save model checkpoints
 ROOT_DATA=/mnt/SSD/wsy/data/fastmri_train_batch0_pilot/brain_train_d384_s200  # path to the train dataset
 BATCH_SIZE=2                                # use 4 or 8 depending on GPU memory
 LR=1e-4
@@ -20,6 +20,6 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
  --cond=0 --arch=ddpmpp --batch=$BATCH_SIZE \
  --lr=$LR --dropout=0.05 \
  --augment=0 --real_p=0.5 --padding=$PADDING \
- --tick=1 --snap=50 --seed=2025 --pad_width=$PAD_WIDTH  \
+ --tick=1 --snap=50 --seed=123 --pad_width=$PAD_WIDTH  \
  --patch-list=$PATCH_SIZES --patch-probs=$PROBS \
  --workers=4

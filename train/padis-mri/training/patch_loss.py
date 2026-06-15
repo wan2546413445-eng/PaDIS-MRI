@@ -26,7 +26,7 @@ from torch_utils import persistence
 
 @persistence.persistent_class
 class Patch_EDMLoss:
-    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5):
+    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.1627):
         # print("We are using PATCH EDM")
         self.P_mean = P_mean
         self.P_std = P_std
