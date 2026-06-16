@@ -120,7 +120,12 @@ def parse_float_list(s):
 @click.option('--seed', help='Random seed  [default: random]', metavar='INT', type=int)
 @click.option('--transfer', help='Transfer learning from network pickle', metavar='PKL|URL', type=str)
 @click.option('--resume', help='Resume from previous training state', metavar='PT', type=str)
-@click.option('--overlap-mode', help='Overlap experiment mode', type=click.Choice(['same', 'diff']), required=True)
+@click.option(
+    '--overlap-mode',
+    help='Overlap experiment mode',
+    type=click.Choice(['same', 'diff', 'independent']),
+    required=True,
+)
 @click.option('--lambda-overlap', help='Overlap auxiliary loss weight', type=float, default=0.01, show_default=True)
 @click.option('--min-noise-ratio', help='Minimum valid diff-mode noise ratio', type=float, default=1.25,
               show_default=True)
@@ -200,15 +205,40 @@ def main(**kwargs):
     elif opts.precond == 'pedm':
         c.network_kwargs.class_name = 'training.networks.Patch_EDMPrecond'
         c.network_kwargs.sigma_data = 0.5
+
         if opts.overlap_mode == 'same':
             c.loss_kwargs.class_name = 'training.patch_overlap_loss.SameNoiseOverlapPatch_EDMLoss'
-            c.loss_kwargs.update(P_mean=-1.2, P_std=1.2, sigma_data=0.5, lambda_overlap=opts.lambda_overlap,
-                                 overlap_mode='same')
-        else:
+            c.loss_kwargs.update(
+                P_mean=-1.2, P_std=1.2, sigma_data=0.5,
+                lambda_overlap=opts.lambda_overlap, overlap_mode='same',
+            )
+
+        elif opts.overlap_mode == 'diff':
             c.loss_kwargs.class_name = 'training.patch_overlap_loss.DifferentNoiseOverlapPatch_EDMLoss'
-            c.loss_kwargs.update(P_mean=-1.2, P_std=1.2, sigma_data=0.5, lambda_overlap=opts.lambda_overlap,
-                                 min_noise_ratio=opts.min_noise_ratio, max_noise_ratio=opts.max_noise_ratio,
-                                 overlap_mode='diff')
+            c.loss_kwargs.update(
+                P_mean=-1.2, P_std=1.2, sigma_data=0.5,
+                lambda_overlap=opts.lambda_overlap,
+                min_noise_ratio=opts.min_noise_ratio,
+                max_noise_ratio=opts.max_noise_ratio,
+                overlap_mode='diff',
+            )
+
+        elif opts.overlap_mode == 'independent':
+            # 仅在 64×64 patch 分支启用独立噪声、中心引导的 overlap loss。
+            # 其他尺度由 loss 类内部回退到原始 Patch_EDMLoss。
+            c.loss_kwargs.class_name = (
+                'training.patch_overlap_independent_loss.'
+                'IndependentNoiseOverlapPatch_EDMLoss'
+            )
+            c.loss_kwargs.update(
+                P_mean=-1.2, P_std=1.2, sigma_data=0.5,
+                lambda_overlap=opts.lambda_overlap,
+                active_patch_size=64,
+            )
+
+        else:
+            raise click.ClickException(f'Unsupported overlap mode: {opts.overlap_mode}')
+
     else:
         assert opts.precond == 'edm'
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
@@ -263,10 +293,18 @@ def main(**kwargs):
     dtype_str = 'fp16' if c.network_kwargs.use_fp16 else 'fp32'
     dataset_name = 'aapm_3'
     desc = f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
+    lambda_tag = str(opts.lambda_overlap).replace('.', 'p')
+
     if opts.overlap_mode == 'same':
-        desc += f"-overlap-same-lam{str(opts.lambda_overlap).replace('.', 'p')}"
-    else:
-        desc += f"-overlap-diff-lam{str(opts.lambda_overlap).replace('.', 'p')}-r{str(opts.min_noise_ratio).replace('.', 'p')}-{str(opts.max_noise_ratio).replace('.', 'p')}"
+        desc += f'-overlap-same-lam{lambda_tag}'
+
+    elif opts.overlap_mode == 'diff':
+        min_ratio_tag = str(opts.min_noise_ratio).replace('.', 'p')
+        max_ratio_tag = str(opts.max_noise_ratio).replace('.', 'p')
+        desc += f'-overlap-diff-lam{lambda_tag}-r{min_ratio_tag}-{max_ratio_tag}'
+
+    elif opts.overlap_mode == 'independent':
+        desc += f'-overlap-independent-center-lam{lambda_tag}-p64'
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 
@@ -295,6 +333,10 @@ def main(**kwargs):
     dist.print0(f'Class-conditional:       {c.dataset_kwargs.use_labels}')
     dist.print0(f'Network architecture:    {opts.arch}')
     dist.print0(f'Preconditioning & loss:  {opts.precond}')
+    dist.print0(f'Overlap mode:            {opts.overlap_mode}')
+    dist.print0(f'Overlap loss weight:     {opts.lambda_overlap}')
+    if opts.overlap_mode == 'independent':
+        dist.print0('Active overlap patch:    64')
     dist.print0(f'Number of GPUs:          {dist.get_world_size()}')
     dist.print0(f'Batch size:              {c.batch_size}')
     dist.print0(f'Mixed-precision:         {c.network_kwargs.use_fp16}')

@@ -32,44 +32,67 @@ class Patch_EDMLoss:
         self.P_std = P_std
         self.sigma_data = sigma_data
 
+
+
     def pachify(self, images, patch_size, padding=None):
+        # 输入 images: [B, C, H, W]，从每张整图中随机裁取一个 patch，
+        # 同时生成 patch 内每个像素对应的二维位置编码。
         device = images.device
         batch_size, resolution = images.size(0), images.size(2)
-
+        # 在原图四周补零，使原始图像边缘也能被完整 patch 覆盖。
         if padding is not None:
-            padded = torch.zeros((images.size(0), images.size(1), images.size(2) + padding * 2,
-                                  images.size(3) + padding * 2), dtype=images.dtype, device=device)
+            padded = torch.zeros(
+                (images.size(0), images.size(1),
+                 images.size(2) + padding * 2,
+                 images.size(3) + padding * 2),
+                dtype=images.dtype, device=device
+            )
             padded[:, :, padding:-padding, padding:-padding] = images
         else:
             padded = images
-
         h, w = padded.size(2), padded.size(3)
-        # print(f"image height: {h}, width: {w}, size: {padded.shape}")
         th, tw = patch_size, patch_size
+        # 为 batch 中每张图独立随机选择 patch 左上角坐标：
+        # i 为起始行坐标，j 为起始列坐标。
         if w == tw and h == th:
             i = torch.zeros((batch_size,), device=device).long()
             j = torch.zeros((batch_size,), device=device).long()
         else:
             i = torch.randint(0, h - th + 1, (batch_size,), device=device)
             j = torch.randint(0, w - tw + 1, (batch_size,), device=device)
-
+        # 根据左上角坐标生成每个 patch 的完整行、列索引。
         rows = torch.arange(th, dtype=torch.long, device=device) + i[:, None]
         columns = torch.arange(tw, dtype=torch.long, device=device) + j[:, None]
+        # 使用高级索引一次性裁取整个 batch 的 patch，
+        # 等价于对每张图执行 images[b, :, i:i+P, j:j+P]。
         padded = padded.permute(1, 0, 2, 3)
-        padded = padded[:, torch.arange(batch_size)[:, None, None], rows[:, torch.arange(th)[:, None]],
-                 columns[:, None]]
-        padded = padded.permute(1, 0, 2, 3)
-
-        x_pos = torch.arange(tw, dtype=torch.long, device=device).unsqueeze(0).repeat(th, 1).unsqueeze(0).unsqueeze(0).repeat(batch_size, 1, 1, 1)
-        y_pos = torch.arange(th, dtype=torch.long, device=device).unsqueeze(1).repeat(1, tw).unsqueeze(0).unsqueeze(0).repeat(batch_size, 1, 1, 1)
+        padded = padded[
+            :,
+            torch.arange(batch_size, device=device)[:, None, None],
+            rows[:, torch.arange(th, device=device)[:, None]],
+            columns[:, None]
+        ]
+        padded = padded.permute(1, 0, 2, 3)  # [B, C, P, P]
+        # 构造 patch 内逐像素的局部横、纵坐标网格。
+        x_pos = torch.arange(tw, device=device).view(1, 1, 1, tw)
+        x_pos = x_pos.repeat(batch_size, 1, th, 1)
+        y_pos = torch.arange(th, device=device).view(1, 1, th, 1)
+        y_pos = y_pos.repeat(batch_size, 1, 1, tw)
+        # 加上 patch 左上角位置，得到相对于整张 padded image 的绝对坐标。
         x_pos = x_pos + j.view(-1, 1, 1, 1)
         y_pos = y_pos + i.view(-1, 1, 1, 1)
+        # 将位置坐标归一化。分母使用的是 padding 前的原图分辨率，
+        # 因此存在 padding 时，部分位置编码可能超过 [-1, 1]。
         x_pos = (x_pos / (resolution - 1) - 0.5) * 2.
         y_pos = (y_pos / (resolution - 1) - 0.5) * 2.
+        # 拼接为两通道位置编码：[B, 2, P, P]，
+        # 第一个通道为 x 坐标，第二个通道为 y 坐标。
         images_pos = torch.cat((x_pos, y_pos), dim=1)
-        #print(torch.amax(images_pos))
         return padded, images_pos
-#训练逻辑
+
+
+
+    #训练逻辑
     def __call__(self, net, images, patch_size, resolution, labels=None, augment_pipe=None):
         images, images_pos = self.pachify(images, patch_size)
 
