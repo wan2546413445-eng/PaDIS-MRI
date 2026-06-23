@@ -8,8 +8,8 @@
     两个重叠 patch 使用相同 sigma、独立高斯噪声；
     更靠近 patch 边界的预测向更靠近 patch 内部的预测学习。
 
-仅在 active_patch_size（默认 64）上启用上述配对训练。
-16×16 和 32×32 分支保持作者原始 Patch_EDMLoss 不变。
+仅在 active_patch_sizes 指定的尺度上启用上述配对训练。
+未指定的 patch 尺度保持作者原始 Patch_EDMLoss 不变。
 """
 
 import os
@@ -31,12 +31,12 @@ from training.patch_overlap_loss import (
 
 
 @persistence.persistent_class
-class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
-    """仅在指定 patch 尺度上启用独立噪声、中心引导的一致性约束。"""
+class IndependentNoiseOverlapPatchSelective_EDMLoss(Patch_EDMLoss):
+    """仅在指定 patch 尺度集合上启用独立噪声、中心引导的一致性约束。"""
 
     def __init__(
         self, P_mean=-1.2, P_std=1.2, sigma_data=0.5,
-        lambda_overlap=1.0, active_patch_size=64,
+        lambda_overlap=1.0, active_patch_size=64, active_patch_sizes=None,
     ):
         super().__init__(P_mean=P_mean, P_std=P_std, sigma_data=sigma_data)
 
@@ -44,14 +44,23 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             raise ValueError('lambda_overlap 必须大于或等于 0')
 
         self.lambda_overlap = float(lambda_overlap)
-        self.active_patch_size = int(active_patch_size)
+
+        # 保留 active_patch_size 以兼容旧配置；新实验统一使用 active_patch_sizes。
+        if active_patch_sizes is None:
+            active_patch_sizes = [active_patch_size]
+        elif isinstance(active_patch_sizes, str):
+            active_patch_sizes = [int(x) for x in active_patch_sizes.split(',') if x.strip()]
+
+        self.active_patch_sizes = tuple(sorted(set(int(x) for x in active_patch_sizes)))
+        if len(self.active_patch_sizes) == 0:
+            raise ValueError('active_patch_sizes 不能为空')
 
     def __call__(
         self, net, images, patch_size, resolution,
         labels=None, augment_pipe=None,
     ):
-        # 16×16 和 32×32 分支完全沿用作者原始 Patch_EDMLoss。
-        if int(patch_size) != self.active_patch_size:
+        # 未列入 active_patch_sizes 的尺度完全沿用作者原始 Patch_EDMLoss。
+        if int(patch_size) not in self.active_patch_sizes:
             return super().__call__(
                 net=net, images=images, patch_size=patch_size,
                 resolution=resolution, labels=labels,

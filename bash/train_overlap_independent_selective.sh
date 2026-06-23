@@ -5,10 +5,9 @@ set -o pipefail
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
 # 用法：
-# GPU=4 VARIANT=control     /bin/bash bash/train_overlap_independent.sh debug
-# GPU=5 VARIANT=center      /bin/bash bash/train_overlap_independent.sh debug
-# GPU=4 VARIANT=control     /bin/bash bash/train_overlap_independent.sh main
-# GPU=5 VARIANT=center      /bin/bash bash/train_overlap_independent.sh main
+# GPU=4 VARIANT=control ACTIVE_PATCH_SIZES=64      /bin/bash bash/train_overlap_independent_selective.sh debug
+# GPU=5 VARIANT=center  ACTIVE_PATCH_SIZES=32,64   /bin/bash bash/train_overlap_independent_selective.sh main
+# GPU=6 VARIANT=center  ACTIVE_PATCH_SIZES=16,32,64 /bin/bash bash/train_overlap_independent_selective.sh main
 
 GPU=${GPU:-4}
 VARIANT=${VARIANT:-center}
@@ -35,6 +34,9 @@ WORKERS=4
 SEED=123
 RESUME_ARGS=()
 RESUME_PATH=${RESUME_PATH:-}
+ACTIVE_PATCH_SIZES=${ACTIVE_PATCH_SIZES:-64}
+ACTIVE_TAG=${ACTIVE_PATCH_SIZES//,/p}
+
 case "$VARIANT" in
     control)
         LAMBDA_OVERLAP=0.0
@@ -50,14 +52,15 @@ esac
 
 case "$MODE" in
     debug)
-        # 强制抽取 64 patch，确保 debug 真正测试到最坏显存分支。
+        # 与 main 保持相同 patch 候选集合，避免 ACTIVE_PATCH_SIZES 与 PATCH_SIZES 不一致。
+        # debug 仅用于检查选择性 active patch 参数、数据流和显存是否能跑通。
         DURATION=0.001
         TICK=1
         SNAP=1
         DUMP=1
-        PATCH_SIZES=64
-        PATCH_PROBS=1.0
-        PATCH_TAG=p64only
+        PATCH_SIZES=16,32,64
+        PATCH_PROBS=0.2,0.3,0.5
+        PATCH_TAG=s16s32s64_p020305
         ;;
     overnight)
         DURATION=8.064
@@ -69,7 +72,6 @@ case "$MODE" in
         PATCH_TAG=s16s32s64_p020305
         ;;
     resume15k)
-
         DURATION=15.12
         TICK=5
         SNAP=200
@@ -104,7 +106,7 @@ case "$MODE" in
 esac
 
 LAMBDA_TAG=${LAMBDA_OVERLAP//./p}
-EXP_NAME=overlap_independent_${VARIANT}_lam${LAMBDA_TAG}_active64_bgpu1_${PATCH_TAG}_b2_seed123
+EXP_NAME=overlap_independent_${VARIANT}_lam${LAMBDA_TAG}_active${ACTIVE_TAG}_bgpu1_${PATCH_TAG}_b2_seed123
 RUN_NAME=${MODE}_${EXP_NAME}
 
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
@@ -118,14 +120,14 @@ cd "$CODE_ROOT"
 
 {
     echo "=================================================="
-    echo "PaDIS-MRI Independent-Noise Center-Guided Overlap Training"
+    echo "PaDIS-MRI Independent-Noise Center-Guided Selective Overlap Training"
     echo "MODE=$MODE"
     echo "VARIANT=$VARIANT"
     echo "GPU=$GPU"
     echo "LAMBDA_OVERLAP=$LAMBDA_OVERLAP"
     echo "BATCH_SIZE=$BATCH_SIZE"
     echo "BATCH_GPU=$BATCH_GPU"
-    echo "ACTIVE_PATCH_SIZE=64"
+    echo "ACTIVE_PATCH_SIZES=$ACTIVE_PATCH_SIZES"
     echo "PATCH_SIZES=$PATCH_SIZES"
     echo "PATCH_PROBS=$PATCH_PROBS"
     echo "SAME_SIGMA=true"
@@ -145,7 +147,7 @@ export PYTHONPATH="$CODE_ROOT/train/padis-mri:${PYTHONPATH:-}"
 CUDA_VISIBLE_DEVICES=$GPU torchrun \
     --standalone \
     --nproc_per_node=$NPROC \
-    train/padis-mri/train_overlap.py \
+    train/padis-mri/train_overlap_active_selective.py \
     --outdir="$OUTDIR" \
     --data="$DATA_DIR" \
     --cond=0 \
@@ -153,6 +155,7 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun \
     --precond=pedm \
     --overlap-mode=independent \
     --lambda-overlap="$LAMBDA_OVERLAP" \
+    --active-patch-sizes="$ACTIVE_PATCH_SIZES" \
     --batch="$BATCH_SIZE" \
     --batch-gpu="$BATCH_GPU" \
     --lr="$LR" \

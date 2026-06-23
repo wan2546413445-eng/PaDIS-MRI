@@ -4,7 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/train/padis-mri" isTestSource="false" />
     </content>
-    <orderEntry type="jdk" jdkName="~/anaconda3/envs/padis_mri" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.9.25 (sftp://iv250@192.168.199.250:22/home/iv250/anaconda3/envs/padis_mri/bin/python)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

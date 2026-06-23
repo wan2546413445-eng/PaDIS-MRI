@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 
 
-GPU=4
+GPU=1
 
 
 
@@ -15,8 +15,7 @@ RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
 MODEL_PATH=${MODEL_PATH:-$RESULT_ROOT/PaDIS-MRI-runs/overlap_same_training-runs/brain/32dB/main_overlap_same_lam001_s16s32s64_p020305_b2_seed123/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch2-fp32-overlap-same-lam0p01/network-snapshot-005040.pkl}
 
 VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB
-
-EXP_NAME=${EXP_NAME:-overlap_same_ckpt005040_s78_32_seed123}
+EXP_NAME=${EXP_NAME:-overlap_independent_center_lam0p3_ckpt005040_s78_sample1_seed123}
 SAVE_DIR=$RESULT_ROOT/PaDIS-MRI-recon/$EXP_NAME
 LOG_DIR=$RESULT_ROOT/results_record/logs
 

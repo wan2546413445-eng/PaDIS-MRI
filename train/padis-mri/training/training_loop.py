@@ -175,7 +175,7 @@ def training_loop(
         del data # conserve memory
     if resume_state_dump:
         dist.print0(f'Loading training state from "{resume_state_dump}"...')
-        data = torch.load(resume_state_dump, map_location=torch.device('cpu'))
+        data = torch.load(resume_state_dump, map_location=torch.device('cpu'), weights_only=False)
         misc.copy_params_and_buffers(src_module=data['net'], dst_module=net, require_all=True)
         optimizer.load_state_dict(data['optimizer_state'])
         del data # conserve memory
