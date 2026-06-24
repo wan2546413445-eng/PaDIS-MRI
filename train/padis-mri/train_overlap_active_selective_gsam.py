@@ -128,8 +128,8 @@ def parse_float_list(s):
 )
 @click.option('--lambda-overlap', help='Overlap auxiliary loss weight', type=float, default=0.01, show_default=True)
 @click.option('--active-patch-sizes', help='Comma-separated patch sizes that enable independent overlap loss, e.g. 64 or 32,64', type=str, default='64', show_default=True)
-@click.option('--overlap-confidence-mode', help='Geometry confidence mode for independent overlap loss', type=click.Choice(['linear', 'power']), default='linear', show_default=True)
-@click.option('--overlap-confidence-gamma', help='Power exponent for geometry confidence. gamma=1 keeps the original linear weighting.', type=click.FloatRange(min=0, min_open=True), default=1.0, show_default=True)
+@click.option('--overlap-sampling-mode', help='Overlap pair sampling mode for independent loss', type=click.Choice(['uniform', 'gradient', 'mixed']), default='uniform', show_default=True)
+@click.option('--overlap-gradient-alpha', help='Probability of using gradient-aware sampling when overlap-sampling-mode=mixed', type=click.FloatRange(min=0, max=1), default=0.7, show_default=True)
 @click.option('--min-noise-ratio', help='Minimum valid diff-mode noise ratio', type=float, default=1.25,
               show_default=True)
 @click.option('--max-noise-ratio', help='Maximum valid diff-mode noise ratio', type=float, default=3.0,
@@ -244,15 +244,15 @@ def main(**kwargs):
             # 中心引导的 overlap loss。未指定尺度由 loss 类内部回退到
             # 原始 Patch_EDMLoss，用于保持公平对照。
             c.loss_kwargs.class_name = (
-                'training.patch_overlap_independent_selective_conf_loss.'
-                'IndependentNoiseOverlapPatchSelective_EDMLoss'
+                'training.patch_overlap_independent_selective_gsam_loss.'
+                'IndependentNoiseOverlapPatchGradientSampling_EDMLoss'
             )
             c.loss_kwargs.update(
                 P_mean=-1.2, P_std=1.2, sigma_data=0.5,
                 lambda_overlap=opts.lambda_overlap,
                 active_patch_sizes=active_patch_sizes,
-                confidence_mode=opts.overlap_confidence_mode,
-                confidence_gamma=opts.overlap_confidence_gamma,
+                overlap_sampling_mode=opts.overlap_sampling_mode,
+                overlap_gradient_alpha=opts.overlap_gradient_alpha,
             )
 
         else:
@@ -324,8 +324,8 @@ def main(**kwargs):
 
     elif opts.overlap_mode == 'independent':
         active_tag = 'p'.join(str(x) for x in active_patch_sizes)
-        gamma_tag = str(opts.overlap_confidence_gamma).replace('.', 'p')
-        desc += f'-overlap-independent-center-lam{lambda_tag}-p{active_tag}-conf{opts.overlap_confidence_mode}-g{gamma_tag}'
+        alpha_tag = str(opts.overlap_gradient_alpha).replace('.', 'p')
+        desc += f'-overlap-independent-center-lam{lambda_tag}-p{active_tag}-sample{opts.overlap_sampling_mode}-a{alpha_tag}'
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 
@@ -358,8 +358,8 @@ def main(**kwargs):
     dist.print0(f'Overlap loss weight:     {opts.lambda_overlap}')
     if opts.overlap_mode == 'independent':
         dist.print0(f'Active overlap patches:  {active_patch_sizes}')
-        dist.print0(f'Overlap confidence mode: {opts.overlap_confidence_mode}')
-        dist.print0(f'Overlap confidence gamma:{opts.overlap_confidence_gamma}')
+        dist.print0(f'Overlap sampling mode:   {opts.overlap_sampling_mode}')
+        dist.print0(f'Overlap gradient alpha:  {opts.overlap_gradient_alpha}')
     dist.print0(f'Number of GPUs:          {dist.get_world_size()}')
     dist.print0(f'Batch size:              {c.batch_size}')
     dist.print0(f'Mixed-precision:         {c.network_kwargs.use_fp16}')
