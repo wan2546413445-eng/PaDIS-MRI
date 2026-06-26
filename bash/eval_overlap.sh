@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 
 
-GPU=1
+GPU=7
 
 
 

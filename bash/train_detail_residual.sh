@@ -8,7 +8,7 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 # GPU=5 /bin/bash bash/train_detail_residual.sh debug
 # GPU=5 DETAIL_HIDDEN=48 DETAIL_ETA=0.15 /bin/bash bash/train_detail_residual.sh train10k
 
-GPU=${GPU:-5}
+GPU=2
 MODE=${1:-debug}
 NPROC=1
 
