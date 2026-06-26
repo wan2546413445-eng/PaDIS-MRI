@@ -3,11 +3,11 @@ set -e
 set -o pipefail
 
 
-GPU=7
+GPU=4
 
 
 
-SAMPLE_INDICES="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31"
+SAMPLE_INDICES="18"
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
@@ -52,7 +52,7 @@ CUDA_VISIBLE_DEVICES=$GPU python eval/run.py \
     --pad 64 \
     --psize 64 \
     --mask_select 7 \
-    --val_count 32 \
+    --val_count 1 \
     --sample_indices "$SAMPLE_INDICES" \
     --seed 123 \
     --zeta 3.0 \
