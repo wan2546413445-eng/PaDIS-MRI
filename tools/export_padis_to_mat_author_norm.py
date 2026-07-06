@@ -6,7 +6,16 @@ import torch
 from scipy.io import savemat
 import sigpy as sp
 
+USE_BUILTIN_CONFIG = True
 
+BUILTIN_CONFIG = {
+    "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/detail_ckpt005040_s78_sample3_seed123/evaluate/recons",
+    "val_dir": r"/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB",
+    "out_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/detail/detail-h48-eta0p25-res0p4-grad0p15-edge0p1-dil1p2p5",
+    "idx": "all",
+    "mask_select": 7,
+    "save_kspace_maps": False,
+}
 def fftmod_np(x: np.ndarray) -> np.ndarray:
     """
     Same logic as eval/utils.py fftmod, but for numpy.
@@ -169,9 +178,23 @@ def parse_indices(idx_arg: str, recon_dir: str):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--recon_dir", type=str, required=True)
-    parser.add_argument("--val_dir", type=str, required=True)
-    parser.add_argument("--out_dir", type=str, required=True)
+    parser.add_argument(
+        "--recon_dir",
+        type=str,
+        default="/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/overlap_independent_center_lam0p3_active32p64_ckpt005040_full32/evaluate/recons",
+    )
+
+    parser.add_argument(
+        "--val_dir",
+        type=str,
+        default="/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB",
+    )
+
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default="/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/overlap/overlap_independent_center_lam0p3_active32p64_ckpt005040_full32",
+    )
     parser.add_argument("--idx", type=str, default="all", help="'all' or comma-separated indices, e.g. 0,1,2")
     parser.add_argument("--mask_select", type=int, default=7)
     parser.add_argument("--save_kspace_maps", action="store_true")

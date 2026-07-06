@@ -107,7 +107,15 @@ def training_loop(
     dist.print0('Loading dataset...')
 
     mypath = dataset_kwargs.get('path', '/data/datasets/fastmri/brain_train_t2_d384_s500/32dB') + f'/noisy.pt'
-    imsize = 384
+
+    # Infer training image size directly from noisy.pt.
+    # This avoids hard-coding 384 and allows center320 + pad64 training.
+    _tmp = torch.load(mypath, map_location='cpu')
+    if 'x_est_gt' not in _tmp:
+        raise KeyError(f"{mypath} must contain key 'x_est_gt'.")
+    imsize = int(_tmp['x_est_gt'].shape[-1])
+    del _tmp
+
     dataset_obj = ImageFolderDatasetX(mypath, imsize + 2*pad_width, pad=pad_width, channels=2, imsize=imsize)
 
     dataset_sampler = misc.InfiniteSampler(dataset=dataset_obj, rank=dist.get_rank(), num_replicas=dist.get_world_size(), seed=seed)
@@ -332,13 +340,15 @@ def training_loop(
                 with open(os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl'), 'wb') as f:
                     pickle.dump(data, f)
                     
+                # Lightweight unconditional preview. Keep it consistent with the current training FOV.
+                # For 320 + pad64 training, use resolution=320, psize=64, pad=64.
                 samples_cplx = dps_uncond(
-                    net=ema,           # or net, but typically EMA is used for sampling
-                    batch_size=1,      # small batch
-                    resolution=384,    # match training
-                    psize=96,
-                    pad=96,
-                    num_steps=65,      # fewer steps for speed
+                    net=ema,
+                    batch_size=1,
+                    resolution=imsize,
+                    psize=64,
+                    pad=pad_width,
+                    num_steps=65,
                     sigma_min=0.003,
                     sigma_max=10,
                     rho=7,

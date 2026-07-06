@@ -6,7 +6,7 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 # Context-center PaDIS-MRI training with original EDM sigma defaults.
 # No --sigma-data, --p-mean, or --p-std is passed.
 
-GPU=1
+GPU=3
 NPROC=1
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
@@ -60,7 +60,7 @@ else
   exit 1
 fi
 
-EXP_NAME=context_center_m${CONTEXT_MARGIN}_default_sigma_s16s32s64_p020305_b${BATCH_SIZE}_seed${SEED}
+EXP_NAME=context_center_m${CONTEXT_MARGIN}_origEDM_s16s32s64_p020305_b${BATCH_SIZE}_seed${SEED}
 RUN_NAME=${MODE}_${EXP_NAME}
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
 DATA_DIR=$ROOT_DATA/$SNR
@@ -135,7 +135,7 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun --standalone --nproc_per_node=$NPROC train/pa
   --seed=$SEED \
   --pad_width=$PAD_WIDTH \
   --context-margin=$CONTEXT_MARGIN \
-  --desc=context_center_m${CONTEXT_MARGIN}_default_sigma \
+  --desc=context_center_m${CONTEXT_MARGIN}_origEDM \
   "${RESUME_ARGS[@]}" \
   --patch-list=$PATCH_SIZES \
   --patch-probs=$PROBS \

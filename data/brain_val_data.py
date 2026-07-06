@@ -265,7 +265,7 @@ for i in tqdm(range(total_iterations)):
                 'mask_9': torch.tensor(mask_9),
                 'mask_10': torch.tensor(mask_10),
                 'norm_consts_99': norm_const_99_white,},
-                os.path.join(path, f'sample_{tag}_{i}.pt') if args.contrast == "t1-flair" else os.path.join(path, f'sample_{i}.pt'))
+                save_name = args.out_name if args.out_name is not None else (f'sample_{tag}_{i}.pt' if args.contrast == "t1-flair" else f'sample_{i}.pt'))
     
     torch.save({"noise_var_noisy": var},
-               os.path.join(path, f'noise_var_{tag}_{i}.pt') if args.contrast == "t1-flair" else os.path.join(path, f'noise_var_{i}.pt'))
+               os.path.join(path, save_name) if args.contrast == "t1-flair" else os.path.join(path, f'noise_var_{i}.pt'))
