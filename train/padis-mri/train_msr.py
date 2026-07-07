@@ -20,7 +20,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 import dnnlib
 
 from torch_utils import distributed as dist
-from training import training_loop_agg as training_loop
+from training import training_loop
 
 import warnings
 warnings.filterwarnings('ignore', 'Grad strides do not match bucket view strides') # False warning printed by PyTorch 1.12.
@@ -150,7 +150,7 @@ def main(**kwargs):
 
     # Network architecture.
     if opts.arch == 'ddpmpp':
-        c.network_kwargs.update(model_type='SongUNet', embedding_type='positional', encoder_type='standard', decoder_type='standard')
+        c.network_kwargs.update(model_type='MSRSongUNet', embedding_type='positional', encoder_type='standard', decoder_type='standard')
         c.network_kwargs.update(channel_mult_noise=1, resample_filter=[1,1], model_channels=128, channel_mult=[2,2,2], hash_channels=c.hash_channels)
     elif opts.arch == 'ncsnpp':
         c.network_kwargs.update(model_type='SongUNet', embedding_type='fourier', encoder_type='residual', decoder_type='standard')
@@ -167,8 +167,8 @@ def main(**kwargs):
         c.network_kwargs.class_name = 'training.networks.VEPrecond'
         c.loss_kwargs.class_name = 'training.loss.VELoss'
     elif opts.precond == 'pedm':
-        c.network_kwargs.class_name = 'training.networks.Patch_EDMPrecond'
-        c.loss_kwargs.class_name = 'training.patch_loss_agg.Patch_EDMLoss'
+        c.network_kwargs.class_name = 'training.networks_msr.Patch_EDMPrecond'
+        c.loss_kwargs.class_name = 'training.patch_loss.Patch_EDMLoss'
     else:
         assert opts.precond == 'edm'
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
