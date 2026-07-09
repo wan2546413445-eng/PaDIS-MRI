@@ -8,6 +8,8 @@ import sigpy as sp
 
 USE_BUILTIN_CONFIG = True
 
+
+
 BUILTIN_CONFIG = {
     "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/detail_ckpt005040_s78_sample3_seed123/evaluate/recons",
     "val_dir": r"/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB",

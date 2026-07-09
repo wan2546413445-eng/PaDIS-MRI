@@ -14,6 +14,9 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 import matplotlib.pyplot as plt
 import sys
 
+# Diagnostics fork of denoise_padding.py.
+# Default behavior is identical to the original hard residual stitching.
+# Set PADIS_PATCH_AGG=edge_atten to enable edge residual attenuation.
 torch.manual_seed(2)
 #随机生成 offset a,b，spaced：grid,psize:patch size
 #每次 inner loop 都随机改变 patch 网格的起始位置，避免 patch 边界永远固定在同一批像素上
@@ -92,15 +95,54 @@ def denoisedFromPatches(net, x, t_hat, latents_pos, class_labels, indices, pad=9
         bigout = torch.cat(bigout_list, dim=0)
     #输出bigout.shape = [49, 2, 64, 64]，net就是denoised patch estimate
 
-    for i in range(patches):
-        z = indices[i]  # 取第 i 个 patch 的空间坐标: [row_start, row_end, col_start, col_end]
-        # 取出去噪前的 noisy patch，shape 为 [2, P, P]，两个通道分别为 real/imag
-        x_patch = x_hat[0, :, z[0]:z[1], z[2]:z[3]]
-        # 将第 i 个 denoised patch 写回 output 的对应空间位置
-        output[0, :, z[0]:z[1], z[2]:z[3]] += bigout[i, :, :, :]
-        # 计算该 patch 的去噪残差:
-        # output[z_i] = denoised_patch - noisy_patch
-        output[0, :, z[0]:z[1], z[2]:z[3]] -= x_patch
+    # ------------------------------------------------------------------
+    # Patch residual aggregation.
+    #
+    # Default mode keeps the original PaDIS-MRI hard residual stitching:
+    #     x_hat[z_i] <- x_hat[z_i] + (D_i - x_i)
+    #
+    # Optional diagnostic ablation:
+    #     PADIS_PATCH_AGG=edge_atten
+    #     PADIS_EDGE_SIGMA=0.6
+    #     PADIS_EDGE_FLOOR=0.5
+    #
+    # This attenuates only patch-edge residual updates. It does not change
+    # the random-grid sampling or the network forward pass.
+    # ------------------------------------------------------------------
+    agg_mode = os.environ.get("PADIS_PATCH_AGG", "hard").strip().lower()
+
+    if agg_mode in ("edge_atten", "edge_attenuation"):
+        sigma_w = float(os.environ.get("PADIS_EDGE_SIGMA", "0.6"))
+        edge_floor = float(os.environ.get("PADIS_EDGE_FLOOR", "0.5"))
+        edge_floor = max(0.0, min(edge_floor, 1.0))
+
+        yy, xx = torch.meshgrid(
+            torch.linspace(-1, 1, psize, device=x_hat.device, dtype=x_hat.dtype),
+            torch.linspace(-1, 1, psize, device=x_hat.device, dtype=x_hat.dtype),
+            indexing="ij",
+        )
+
+        window2d = torch.exp(-(xx**2 + yy**2) / (2 * sigma_w**2))
+        window2d = window2d / window2d.max().clamp_min(1e-12)
+        window2d = edge_floor + (1.0 - edge_floor) * window2d
+        window = window2d.unsqueeze(0).repeat(channels, 1, 1)
+
+        for i in range(patches):
+            z = indices[i]
+            x_patch = x_hat[0, :, z[0]:z[1], z[2]:z[3]]
+            patch_residual = bigout[i, :, :, :].to(x_hat.dtype) - x_patch
+            output[0, :, z[0]:z[1], z[2]:z[3]] += patch_residual * window
+    else:
+        for i in range(patches):
+            z = indices[i]  # 取第 i 个 patch 的空间坐标: [row_start, row_end, col_start, col_end]
+            # 取出去噪前的 noisy patch，shape 为 [2, P, P]，两个通道分别为 real/imag
+            x_patch = x_hat[0, :, z[0]:z[1], z[2]:z[3]]
+            # 将第 i 个 denoised patch 写回 output 的对应空间位置
+            output[0, :, z[0]:z[1], z[2]:z[3]] += bigout[i, :, :, :]
+            # 计算该 patch 的去噪残差:
+            # output[z_i] = denoised_patch - noisy_patch
+            output[0, :, z[0]:z[1], z[2]:z[3]] -= x_patch
+
     # 将 patch residual 加回原图:
     # x_hat[z_i] = noisy_patch + (denoised_patch - noisy_patch) = denoised_patch
     # 因此在当前 non-overlapping partition 内，相当于把每个 noisy patch 替换为 denoised patch
