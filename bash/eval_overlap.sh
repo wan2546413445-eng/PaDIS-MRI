@@ -3,11 +3,12 @@ set -e
 set -o pipefail
 
 
-GPU=6
+GPU=7
 
 
 
 SAMPLE_INDICES=${SAMPLE_INDICES:-3}
+VAL_COUNT=${VAL_COUNT:-1}
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
@@ -52,7 +53,7 @@ CUDA_VISIBLE_DEVICES=$GPU python eval/run.py \
     --pad 64 \
     --psize 64 \
     --mask_select 7 \
-    --val_count 1 \
+    --val_count "$VAL_COUNT" \
     --sample_indices "$SAMPLE_INDICES" \
     --seed 123 \
     --zeta 3.0 \
