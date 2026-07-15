@@ -11,9 +11,9 @@ USE_BUILTIN_CONFIG = True
 
 
 BUILTIN_CONFIG = {
-    "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/detail_ckpt005040_s78_sample3_seed123/evaluate/recons",
+    "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/00_CURRENT_MAIN/pad64_radialSoft_ckpt010200_sample3_seed123_native/evaluate/recons",
     "val_dir": r"/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB",
-    "out_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/detail/detail-h48-eta0p25-res0p4-grad0p15-edge0p1-dil1p2p5",
+    "out_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/sample/pad64_radialSoft_ckpt010200_sample3_seed123_native",
     "idx": "all",
     "mask_select": 7,
     "save_kspace_maps": False,
@@ -183,19 +183,19 @@ def main():
     parser.add_argument(
         "--recon_dir",
         type=str,
-        default="/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/overlap_independent_center_lam0p3_active32p64_ckpt005040_full32/evaluate/recons",
+        default=BUILTIN_CONFIG["recon_dir"],
     )
 
     parser.add_argument(
         "--val_dir",
         type=str,
-        default="/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB",
+        default=BUILTIN_CONFIG["val_dir"],
     )
 
     parser.add_argument(
         "--out_dir",
         type=str,
-        default="/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/overlap/overlap_independent_center_lam0p3_active32p64_ckpt005040_full32",
+        default=BUILTIN_CONFIG["out_dir"],
     )
     parser.add_argument("--idx", type=str, default="all", help="'all' or comma-separated indices, e.g. 0,1,2")
     parser.add_argument("--mask_select", type=int, default=7)

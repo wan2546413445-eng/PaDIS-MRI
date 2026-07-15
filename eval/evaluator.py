@@ -24,6 +24,7 @@ sys.path.insert(0, padis_path)
 import dnnlib
 
 from dnnlib.util import configure_bart
+
 configure_bart()
 from bart import bart
 
@@ -60,14 +61,16 @@ class DPSHyperEvaluator:
         self.psize = psize
         self.mask_select = mask_select
         self.inverseop = InverseOperator(self.image_size)
-        
-        self.model = model.eval() if model is not None else None
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
 
-        random.seed(seed)
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        
+        self.model = model.eval() if model is not None else None
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        self.seed = int(seed)
+
+        random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        np.random.seed(self.seed)
+
         if not os.path.isdir(val_dir): raise FileNotFoundError(f'val_dir not found: {val_dir}')
         sample_files = glob.glob(os.path.join(val_dir, "sample_*.pt"))
         max_files = len(sample_files)
@@ -113,17 +116,57 @@ class DPSHyperEvaluator:
             self.val_indices = sorted(random.sample(all_indices, val_count))
             print(f"Sample indices: {self.val_indices}")
         self.val_dir = val_dir
-        self.R_levels = list(range(2,11))
-        
+        self.R_levels = list(range(2, 11))
+
         self._build_latents_and_pos()
 
-    def _load_sample(self, 
-                     idx: int, 
-                     seed_ind: int=None,
-                     mask_ind: int=None)-> Tuple[torch.Tensor, torch.Tensor, MRI_utils]:
+    def _set_sample_seed(
+            self,
+            idx: int,
+            gpu_id: int = None,
+            stream_offset: int = 0,
+    ) -> int:
+        """
+        Reset all RNGs for one validation sample.
+
+        This makes a sample use the same stochastic reconstruction trajectory
+        whether it is evaluated alone, in a subset, or in the full validation
+        set.
+
+        Python ``random`` controls PaDIS random patch offsets. PyTorch controls
+        the injected Gaussian noise. NumPy is reset for completeness.
+
+        One process per GPU is recommended: Python and NumPy RNGs are
+        process-global, so multiple GPU worker threads in one process can race
+        while reseeding.
+        """
+        sample_seed = (
+                100000
+                + int(self.seed)
+                + int(idx)
+                + int(stream_offset)
+        )
+
+        random.seed(sample_seed)
+        np.random.seed(sample_seed % (2 ** 32 - 1))
+        torch.manual_seed(sample_seed)
+
+        if torch.cuda.is_available():
+            if gpu_id is None:
+                torch.cuda.manual_seed_all(sample_seed)
+            else:
+                with torch.cuda.device(gpu_id):
+                    torch.cuda.manual_seed(sample_seed)
+
+        return sample_seed
+
+    def _load_sample(self,
+                     idx: int,
+                     seed_ind: int = None,
+                     mask_ind: int = None) -> Tuple[torch.Tensor, torch.Tensor, MRI_utils]:
         """
         Data loader for data-driven priors (FastMRI-EDM and PaDIS-MRI).
-        
+
         Args:
             idx: sample index
             seed_ind: for uncertainty quantification - which mask seed to use at a given R
@@ -134,33 +177,34 @@ class DPSHyperEvaluator:
             mri_inf_utils: MRI_utils (for computing adjoint)
         """
         data = torch.load(os.path.join(self.val_dir, f"sample_{idx}.pt"), weights_only=False)
-        gt = data['gt'][None,None,...].cuda()
+        gt = data['gt'][None, None, ...].cuda()
         mask_id = self.mask_select if not mask_ind else mask_ind
-        s_maps = fftmod(data['s_map'])[None,...].cuda()
-        fs_ksp = fftmod(data['ksp'])[None,...].cuda()
+        s_maps = fftmod(data['s_map'])[None, ...].cuda()
+        fs_ksp = fftmod(data['ksp'])[None, ...].cuda()
 
         mask_str = f"mask_{mask_id}"
         print(f"mask_select: {self.mask_select}")
-        
+
         if seed_ind is not None:
             masks_tensor = data['masks']
             r_idx = self.R_levels.index(self.mask_select)
             mask2d = masks_tensor[r_idx, seed_ind]
             mask = mask2d.unsqueeze(0).cuda()
         else:
-            mask = data[mask_str][None,...].cuda()
-            
+            mask = data[mask_str][None, ...].cuda()
+
         ksp = mask * fs_ksp
         mri_inf_utils = MRI_utils(maps=s_maps, mask=mask)
-        
+
         return ksp, gt, mri_inf_utils
-    
-    def _load_sample_for_bart(self, 
-                              idx: int, 
-                              seed_ind: int = None, 
-                              mask_ind: int = None)-> Tuple[np.ndarray, torch.Tensor, MRI_utils, np.ndarray, np.ndarray, np.ndarray]:
+
+    def _load_sample_for_bart(self,
+                              idx: int,
+                              seed_ind: int = None,
+                              mask_ind: int = None) -> Tuple[
+        np.ndarray, torch.Tensor, MRI_utils, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Data loader for BART. 
+        Data loader for BART.
 
         Args:
             idx: sample index
@@ -172,8 +216,8 @@ class DPSHyperEvaluator:
             gt: torch.Tensor [1, 1, H, W] complex (on CUDA)
             mri_inf_utils: MRI_utils (for computing adjoint)
             coil_sens: np.ndarray [H, W, 1, Nc] complex64 (recomputed using BART ecalib to match input requirements)
-            ksp_ref_bart: np.ndarray [H, W, 1, Nc] complex64 
-            mask_np: np.ndarray [H, W] 
+            ksp_ref_bart: np.ndarray [H, W, 1, Nc] complex64
+            mask_np: np.ndarray [H, W]
         """
         data = torch.load(os.path.join(self.val_dir, f"sample_{idx}.pt"), weights_only=False)
         device = torch.device('cuda')
@@ -182,20 +226,20 @@ class DPSHyperEvaluator:
         fs_ksp = fftmod(data['ksp'])[None, ...].to(device)  # [1, Nc, H, W] complex
 
         if seed_ind is not None:
-            r_idx  = self.R_levels.index(self.mask_select)
-            mask2d = data['masks'][r_idx, seed_ind].to(device)     # [H, W]
-            mask_t = mask2d[None, None, ...]                       # [1,1,H,W]
+            r_idx = self.R_levels.index(self.mask_select)
+            mask2d = data['masks'][r_idx, seed_ind].to(device)  # [H, W]
+            mask_t = mask2d[None, None, ...]  # [1,1,H,W]
         else:
             chosen = self.mask_select if mask_ind is None else mask_ind
             mask_t = data[f"mask_{chosen}"][None, ...].to(device)  # [1,1,H,W]
-            mask2d = mask_t.squeeze(0).squeeze(0)                  # [H, W]
-        ksp_us_torch = mask_t * fs_ksp                             # [1, Nc, H, W]
+            mask2d = mask_t.squeeze(0).squeeze(0)  # [H, W]
+        ksp_us_torch = mask_t * fs_ksp  # [1, Nc, H, W]
         ksp_und = (
-            ksp_us_torch.squeeze(0).permute(1, 2, 0)               # [H, W, Nc]
+            ksp_us_torch.squeeze(0).permute(1, 2, 0)  # [H, W, Nc]
             .detach().cpu().numpy().astype(np.complex64)[..., np.newaxis, :]
         )
         ksp_ref_bart = (
-            fs_ksp.squeeze(0).permute(1, 2, 0)                     
+            fs_ksp.squeeze(0).permute(1, 2, 0)
             .detach().cpu().numpy().astype(np.complex64)[..., np.newaxis, :]
         )
         ksp_ref_bart = bart(1, f'resize -c 0 {ksp_und.shape[0]}', ksp_ref_bart)
@@ -209,37 +253,35 @@ class DPSHyperEvaluator:
 
         return ksp_und, gt, mri_inf_utils, coil_sens, ksp_ref_bart, mask_np
 
-    
-    def _build_latents_and_pos(self, pad_override: int=None)-> None:
+    def _build_latents_and_pos(self, pad_override: int = None) -> None:
         """(Re)build the `self.latents` and `self.latents_pos` tensors
            whenever `psize` or `pad` (or image_size) change."""
-           
+
         pad = pad_override if pad_override is not None else self.pad
         self.latents = torch.randn(
             [1, 1, self.image_size, self.image_size],
             device=self.device
         )
 
-        resolution = self.image_size + 2*pad#N′=N+2M.
-        #生成横向和纵向的一维坐标向量
+        resolution = self.image_size + 2 * pad  # N′=N+2M.
+        # 生成横向和纵向的一维坐标向量
         x = torch.linspace(-1, 1, resolution, device=self.device)
         y = torch.linspace(-1, 1, resolution, device=self.device)
-        #横纵向坐标复制成一张N′*N′坐标图，每一行/列都从 −1 变化到 1
+        # 横纵向坐标复制成一张N′*N′坐标图，每一行/列都从 −1 变化到 1
         x_pos = x.view(1, -1).repeat(resolution, 1)
         y_pos = y.view(-1, 1).repeat(1, resolution)
-        #合成两通道位置编码pos.shape = [2, N', N']
+        # 合成两通道位置编码pos.shape = [2, N', N']
         pos = torch.stack([x_pos, y_pos], dim=0)  # [2, R, R]
-        #self.latents_pos.shape = [1, 2, N', N']，加入batch,神经网络输入要求
-        self.latents_pos = pos.unsqueeze(0)       # [1, 2, R, R]
+        # self.latents_pos.shape = [1, 2, N', N']，加入batch,神经网络输入要求
+        self.latents_pos = pos.unsqueeze(0)  # [1, 2, R, R]
 
-    
-    def dps_edm_wrapper(self, inverse_op: InverseOperator, 
-                        measurement: torch.Tensor, 
-                        clean: torch.Tensor, 
-                        zeta: float, 
-                        num_steps: int, 
-                        save_dir: str=None, 
-                        tag: str=None)-> Tuple[torch.Tensor, float, float, float, float, float, float]:
+    def dps_edm_wrapper(self, inverse_op: InverseOperator,
+                        measurement: torch.Tensor,
+                        clean: torch.Tensor,
+                        zeta: float,
+                        num_steps: int,
+                        save_dir: str = None,
+                        tag: str = None) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
         """
         Args:
             inverse_op: InverseOperator instance
@@ -265,22 +307,22 @@ class DPSHyperEvaluator:
                 device=self.device,
                 randn_like=torch.randn_like,
             )
-            
+
             recon_cpu = recon.cpu()
             mag = torch.abs(recon_cpu.squeeze(0).squeeze(0)).numpy()
             mag_clip = np.clip(mag, 0, 1)
             return mag_clip, 0, 0, 0, 0, 0, 0
         else:
             recon, a, b, c, d, e, f = dps_edm(
-                                        net=self.model,
-                                        measurement=measurement,
-                                        clean=clean,
-                                        inverseop=inverse_op,
-                                        num_steps=num_steps,
-                                        zeta=zeta,
-                                        save_dir=save_dir,
-                                        tag=tag
-                                        )
+                net=self.model,
+                measurement=measurement,
+                clean=clean,
+                inverseop=inverse_op,
+                num_steps=num_steps,
+                zeta=zeta,
+                save_dir=save_dir,
+                tag=tag
+            )
 
             return recon, a, b, c, d, e, f
 
@@ -313,7 +355,7 @@ class DPSHyperEvaluator:
         Returns:
             recon: torch.Tensor [1, 1, H, W] complex (on CPU)
             noisypsnr, denoisedpsnr, noisyssim, denoisedssim, noisynrmse, denoisednrmse: floats
-        """        
+        """
         if measurement is None:
             recon = dps_uncond(
                 net=self.model,
@@ -328,12 +370,12 @@ class DPSHyperEvaluator:
                 device=self.device,
                 randn_like=torch.randn_like,
             )
-            
+
             recon_cpu = recon.cpu()
             mag = torch.abs(recon_cpu.squeeze(0).squeeze(0)).numpy()
             mag_clip = np.clip(mag, 0, 1)
             return mag_clip, 0, 0, 0, 0, 0, 0
-        
+
         else:
             recon, a, b, c, d, e, f = dps2(
                 net=self.model,
@@ -354,28 +396,28 @@ class DPSHyperEvaluator:
             )
             return recon, a, b, c, d, e, f
 
-    def admm_tv_wrapper(self, 
-                        inverse_op: InverseOperator, 
-                        measurement: torch.Tensor, 
-                        clean: torch.Tensor, 
-                        lam: float, 
-                        max_iter: int=100, 
-                        coil_sens: torch.Tensor=None, 
-                        mask: torch.Tensor=None,  
-                        save_dir: str=None, 
-                        tag: str=None)-> Tuple[torch.Tensor, float, float, float, float, float, float]:
+    def admm_tv_wrapper(self,
+                        inverse_op: InverseOperator,
+                        measurement: torch.Tensor,
+                        clean: torch.Tensor,
+                        lam: float,
+                        max_iter: int = 100,
+                        coil_sens: torch.Tensor = None,
+                        mask: torch.Tensor = None,
+                        save_dir: str = None,
+                        tag: str = None) -> Tuple[torch.Tensor, float, float, float, float, float, float]:
         """
-        Wrapper for BART based reconstructions. 
+        Wrapper for BART based reconstructions.
         Modify the recon_l1 command to try other BART reconstruction algos.
         Matches interface of PadIS and EDM wrappers.
         """
-        
+
         recon_l1 = bart(1, f'pics -S -l1 -r {lam}', measurement, coil_sens)
         adjoint_np = bart(1, 'pics -S -H', measurement, coil_sens)
-        
+
         recon_l1_shifted = fftshift(np.squeeze(recon_l1))
         denoised_tensor = torch.from_numpy(recon_l1_shifted)
-        
+
         adjoint_shifted = fftshift(np.squeeze(adjoint_np))
         noisy_tensor = torch.from_numpy(adjoint_shifted)
 
@@ -384,28 +426,28 @@ class DPSHyperEvaluator:
         noisypsnr, denoisedpsnr, noisyssim, denoisedssim, noisynrmse, denoisednrmse = makeFigures(
             noisy2=noisy_tensor,
             denoised2=denoised_tensor,
-            orig2=orig_tensor, 
-            i=0, # dummy index, we only save the final output recon from BART; no intermediate steps
+            orig2=orig_tensor,
+            i=0,  # dummy index, we only save the final output recon from BART; no intermediate steps
             out_dir=save_dir,
             tag=tag,
-            plot=True 
+            plot=True
         )
-         
+
         recon_torch = denoised_tensor
-         
+
         return recon_torch, noisypsnr, denoisedpsnr, noisyssim, denoisedssim, noisynrmse, denoisednrmse
-        
+
     def sweep_patch_sizes(
-        self,
-        num_trials: int,
-        patch_sizes: list[int],
-        zeta: float,
-        num_steps: int,
-        save_dir: str,
-        algo: str="padis",
-        gpus: list[int] = None,
-        tag: str = "",
-        report_every: int = 10,
+            self,
+            num_trials: int,
+            patch_sizes: list[int],
+            zeta: float,
+            num_steps: int,
+            save_dir: str,
+            algo: str = "padis",
+            gpus: list[int] = None,
+            tag: str = "",
+            report_every: int = 10,
     ):
         """
         Try different patch sizes for PaDIS-MRI to see which works best at inference time.
@@ -437,7 +479,7 @@ class DPSHyperEvaluator:
 
             summary = {}
             for psize in patch_sizes:
-                summary[psize] = {"psnr":[], "ssim":[], "nrmse":[]}
+                summary[psize] = {"psnr": [], "ssim": [], "nrmse": []}
                 run_dir = os.path.join(save_dir, f"psize_{psize}/")
                 os.makedirs(run_dir, exist_ok=True)
 
@@ -462,7 +504,8 @@ class DPSHyperEvaluator:
                         recon, _, psnr_val, _, ssim_val, _, nrmse_val = self.dps2_wrapper(**args)
                     else:
                         print(f"WARNING: Why are you sweeping patch sizes with algo={algo}?")
-                        args.pop("pad"); args.pop("psize")
+                        args.pop("pad");
+                        args.pop("psize")
                         recon, _, psnr_val, _, ssim_val, _, nrmse_val = self.dps_edm_wrapper(**args)
 
                     # record
@@ -478,7 +521,7 @@ class DPSHyperEvaluator:
                     summary[psize]["nrmse"].append(nrmse_val)
 
                     if i % report_every == 0:
-                        m = sum(summary[psize]["psnr"])/len(summary[psize]["psnr"])
+                        m = sum(summary[psize]["psnr"]) / len(summary[psize]["psnr"])
                         print(f"[psize={psize}] done {i}/{num_trials} — PSNR mean so far: {m:.2f}")
 
             # append summary rows
@@ -487,31 +530,30 @@ class DPSHyperEvaluator:
             for psize, vals in summary.items():
                 writer.writerow({
                     "psize": psize,
-                    "psnr":  f"{np.mean(vals['psnr']):.2f}±{np.std(vals['psnr']):.2f}",
-                    "ssim":  f"{np.mean(vals['ssim']):.4f}±{np.std(vals['ssim']):.4f}",
+                    "psnr": f"{np.mean(vals['psnr']):.2f}±{np.std(vals['psnr']):.2f}",
+                    "ssim": f"{np.mean(vals['ssim']):.4f}±{np.std(vals['ssim']):.4f}",
                     "nrmse": f"{np.mean(vals['nrmse']):.4f}±{np.std(vals['nrmse']):.4f}",
                 })
 
         print(f"Patch‐sweep complete; metrics in {csv_path}")
 
-
     def sweep_masks(
-        self,
-        num_trials: int,
-        mask_list: list[int],
-        zeta: float,
-        num_steps: int,
-        save_dir: str,
-        algo: str,
-        gpus: list[int] = None,
-        tag: str = "",
-        report_every: int = 10,
-        lam: float = 1e-4,
+            self,
+            num_trials: int,
+            mask_list: list[int],
+            zeta: float,
+            num_steps: int,
+            save_dir: str,
+            algo: str,
+            gpus: list[int] = None,
+            tag: str = "",
+            report_every: int = 10,
+            lam: float = 1e-4,
     ):
         """
         For each mask in mask_list, run the selected algorithm on num_trials random samples.
         Saves figures and per-sample recon arrays, and writes a CSV of PSNR/SSIM/NRMSE.
-        
+
         Args:
             num_trials: int, number of random val samples to run per mask
             mask_list: list of int, mask IDs (R=2..10) to sweep over
@@ -557,11 +599,11 @@ class DPSHyperEvaluator:
                             coil_sens=coil_sens,
                             mask=mask_np,
                             save_dir=run_dir,
-                            tag=tag_label,  
+                            tag=tag_label,
                         )
 
                     else:
-                        # Diffusion 
+                        # Diffusion
                         meas, gt, invop = self._load_sample(idx, mask_ind=mask_id)
                         args_common = dict(
                             inverse_op=invop,
@@ -592,7 +634,7 @@ class DPSHyperEvaluator:
                         "nrmse": nrmse_val,
                     })
 
-                    # save recon 
+                    # save recon
                     np.save(os.path.join(recons_dir, f"recon_{tag_label}.npy"),
                             recon.cpu().numpy())
 
@@ -610,36 +652,35 @@ class DPSHyperEvaluator:
             writer.writerow({"mask": "MEAN±STD"})
             for mask_id, vals in summary.items():
                 writer.writerow({
-                    "mask":  mask_id,
-                    "psnr":  f"{np.mean(vals['psnr']):.2f}±{np.std(vals['psnr']):.2f}",
-                    "ssim":  f"{np.mean(vals['ssim']):.4f}±{np.std(vals['ssim']):.4f}",
+                    "mask": mask_id,
+                    "psnr": f"{np.mean(vals['psnr']):.2f}±{np.std(vals['psnr']):.2f}",
+                    "ssim": f"{np.mean(vals['ssim']):.4f}±{np.std(vals['ssim']):.4f}",
                     "nrmse": f"{np.mean(vals['nrmse']):.4f}±{np.std(vals['nrmse']):.4f}",
                 })
 
         print(f"Mask‐sweep complete; metrics in {csv_path}")
-
 
     def _evaluate_zeta(self, zeta: float, num_steps: int, subset: list[int]) -> float:
         """Evaluate average PSNR over a subset of val samples for a given zeta. Helper for hyperparam_search()."""
         if not subset:
             print("WARNING: _evaluate_zeta called with empty subset; returning -inf.")
             return -np.inf
-        
+
         scores = []
         for idx in subset:
             meas, gt, invop = self._load_sample(idx)
             _, _, recon_psnr, _, _, _, _ = self.dps2_wrapper(invop, meas, gt, zeta, self.pad, self.psize, num_steps)
             scores.append(recon_psnr)
         return float(np.mean(scores)) if scores else -np.inf
-    
+
     def hyperparam_search(
-        self,
-        zeta_min: float = 1.0,
-        zeta_max: float = 10.0,
-        grid_points: int = 5,
-        random_samples: int = 5,
-        default_steps: int = 100,
-        subset_size: int = 3,
+            self,
+            zeta_min: float = 1.0,
+            zeta_max: float = 10.0,
+            grid_points: int = 5,
+            random_samples: int = 5,
+            default_steps: int = 100,
+            subset_size: int = 3,
     ):
         """
         1) coarse grid of zeta in [zeta_min,zeta_max]
@@ -659,7 +700,7 @@ class DPSHyperEvaluator:
                 best_z, best_score = z, avg_psnr
 
         # refinement (skip for faster results)
-        low, high = max(zeta_min, best_z*0.5), min(zeta_max, best_z*1.5)
+        low, high = max(zeta_min, best_z * 0.5), min(zeta_max, best_z * 1.5)
         rand_zetas = np.random.uniform(low, high, random_samples)
         for z in rand_zetas:
             avg_psnr = self._evaluate_zeta(z, default_steps, subset)
@@ -667,27 +708,26 @@ class DPSHyperEvaluator:
                 best_z, best_score = z, avg_psnr
 
         return float(best_z)
-    
-    
+
     def evaluate_uncertainty(
-        self,
-        seed_list: list[int],
-        zeta: float,
-        num_steps: int,
-        pad: int,
-        psize: int,
-        algo: str,
-        save_dir: str = None,
-        gpus: list[int] = None,
-        report_every: int = 1,
-        tag: str = None,
-        lam: float = 1e-4,   # for ADMM only
+            self,
+            seed_list: list[int],
+            zeta: float,
+            num_steps: int,
+            pad: int,
+            psize: int,
+            algo: str,
+            save_dir: str = None,
+            gpus: list[int] = None,
+            report_every: int = 1,
+            tag: str = None,
+            lam: float = 1e-4,  # for ADMM only
     ):
         """
         Uncertainty quantification via multiple stochastic reconstructions with different masks at the same R.
         For each val sample, run the chosen algorithm over all masks at selected R generated with different seeds, save per-seed recons,
-        and then write pixelwise mean/std maps. Supports padis, edm, and admm. 
-        
+        and then write pixelwise mean/std maps. Supports padis, edm, and admm.
+
         Args:
             seed_list: list of int, seeds used to generate different masks at the chosen R
             gpus: list of int or None, if multiple GPUs are provided, will parallelize over them (works for this function only)
@@ -729,7 +769,7 @@ class DPSHyperEvaluator:
                     if algo.lower() == "padis":
                         meas, gt, invop = self._load_sample(idx, seed_ind=mask_seed)
                         meas = meas.cuda(gpu_id)
-                        gt   = gt.cuda(gpu_id)
+                        gt = gt.cuda(gpu_id)
                         invop.maps = invop.maps.cuda(gpu_id)
                         invop.mask = invop.mask.cuda(gpu_id)
 
@@ -742,7 +782,7 @@ class DPSHyperEvaluator:
                     elif algo.lower() == "edm":
                         meas, gt, invop = self._load_sample(idx, seed_ind=mask_seed)
                         meas = meas.cuda(gpu_id)
-                        gt   = gt.cuda(gpu_id)
+                        gt = gt.cuda(gpu_id)
                         invop.maps = invop.maps.cuda(gpu_id)
                         invop.mask = invop.mask.cuda(gpu_id)
 
@@ -777,12 +817,12 @@ class DPSHyperEvaluator:
                     recon_list.append((mask_seed, recon_np))
 
                 # compute mean/std maps over all seeds
-                stack   = np.stack([r for _, r in recon_list], axis=0)  
+                stack = np.stack([r for _, r in recon_list], axis=0)
                 mean_map = np.mean(stack, axis=0)
-                std_map  = np.std(stack, axis=0)
+                std_map = np.std(stack, axis=0)
 
                 np.save(os.path.join(sample_dir, "mean_map.npy"), mean_map)
-                np.save(os.path.join(sample_dir, "std_map.npy"),  std_map)
+                np.save(os.path.join(sample_dir, "std_map.npy"), std_map)
 
                 if i % report_every == 0 or i == len(subset):
                     print(f"[GPU{gpu_id}] done {i}/{len(subset)} samples")
@@ -820,7 +860,7 @@ class DPSHyperEvaluator:
         os.makedirs(save_dir, exist_ok=True)
         recons_dir = os.path.join(save_dir, "recons")
         os.makedirs(recons_dir, exist_ok=True)
-        
+
         if gpus is None or len(gpus) == 0:
             gpus = [torch.cuda.current_device()] if torch.cuda.is_available() else [None]
         else:
@@ -829,28 +869,36 @@ class DPSHyperEvaluator:
             if not gpus:
                 gpus = [torch.cuda.current_device()] if torch.cuda.is_available() else [None]
 
-        
         splits = [self.val_indices[i::len(gpus)] for i in range(len(gpus))]
-        results = {gpu: {'idx':[], 'psnr':[], 'ssim':[], 'nrmse':[]} for gpu in gpus}
-                
+        results = {gpu: {'idx': [], 'psnr': [], 'ssim': [], 'nrmse': []} for gpu in gpus}
+
         def worker(subset, gpu_id):
             torch.cuda.set_device(gpu_id)
-            
-            if algo.lower() != "admm" and self.model is not None:   
+
+            if algo.lower() != "admm" and self.model is not None:
                 self.model = self.model.cuda(gpu_id)
                 self.latents = self.latents.to(gpu_id)
-                self.latents_pos= self.latents_pos.to(gpu_id)
-                
+                self.latents_pos = self.latents_pos.to(gpu_id)
+
             local = results[gpu_id]
-            
+
             for i, idx in enumerate(subset, start=1):
+                sample_seed = self._set_sample_seed(
+                    idx=idx,
+                    gpu_id=gpu_id,
+                )
+                print(
+                    f"[Seed] sample={idx} | "
+                    f"reconstruction_seed={sample_seed}"
+                )
+
                 tag_label = f"{idx}_{tag}"
-                
-                if algo.lower() == "admm": 
+
+                if algo.lower() == "admm":
                     meas, gt, invop, coil_sens, ksp_ref, mask = self._load_sample_for_bart(idx)
                 else:
                     meas, gt, invop = self._load_sample(idx)
-                    
+
                     meas = meas.cuda(gpu_id)
                     gt = gt.cuda(gpu_id)
                     invop.maps = invop.maps.cuda(gpu_id)
@@ -881,7 +929,7 @@ class DPSHyperEvaluator:
                     )
                 else:
                     raise ValueError(f"Unknown algorithm: {algo}")
-                    
+
                 # save
                 np.save(os.path.join(recons_dir, f"recon_{tag}_{idx}.npy"), recon.cpu().numpy())
 
@@ -895,7 +943,7 @@ class DPSHyperEvaluator:
                     m = np.mean(local['psnr'])
                     s = np.std(local['psnr'])
                     print(f"[GPU{gpu_id}] {i}/{len(subset)} — PSNR {m:.2f}±{s:.2f}")
-        
+
         threads = []
         for gpu, subset in zip(gpus, splits):
             t = threading.Thread(target=worker, args=(subset, gpu))
@@ -903,12 +951,12 @@ class DPSHyperEvaluator:
             threads.append(t)
         for t in threads:
             t.join()
-        
-        all_idx  = sum((results[g]['idx'] for g in gpus), [])
+
+        all_idx = sum((results[g]['idx'] for g in gpus), [])
         all_psnr = sum((results[g]['psnr'] for g in gpus), [])
         all_ssim = sum((results[g]['ssim'] for g in gpus), [])
-        all_nrm  = sum((results[g]['nrmse'] for g in gpus), [])
-        
+        all_nrm = sum((results[g]['nrmse'] for g in gpus), [])
+
         per_image = {
             idx: {'psnr': psnr, 'ssim': ssim, 'nrmse': nrm}
             for idx, psnr, ssim, nrm in zip(all_idx, all_psnr, all_ssim, all_nrm)
@@ -918,13 +966,13 @@ class DPSHyperEvaluator:
             'psnr_mean': np.mean(all_psnr), 'psnr_std': np.std(all_psnr),
             'ssim_mean': np.mean(all_ssim), 'ssim_std': np.std(all_ssim),
             'nrmse_mean': np.mean(all_nrm), 'nrmse_std': np.std(all_nrm),
-        }  
-        
+        }
+
         metrics = {'per_image': per_image, 'summary': summary}
-        
+
         with open(os.path.join(save_dir, 'metrics.json'), 'w') as f:
             json.dump(metrics, f, indent=2)
-        
+
         return metrics
 
     def load_model(self, model_path: str, device: str = 'cuda'):
@@ -932,14 +980,14 @@ class DPSHyperEvaluator:
         with dnnlib.util.open_url(model_path, verbose=False) as f:
             model = pickle.load(f)['ema']
         return model.to(device).eval()
-    
+
     def generate_unconditional_samples(
-        self,
-        model_paths: list[str],
-        output_root: str,
-        num_samples_per_model: int = 5,
-        algo: str = "padis",
-        device: str = 'cuda',
+            self,
+            model_paths: list[str],
+            output_root: str,
+            num_samples_per_model: int = 5,
+            algo: str = "padis",
+            device: str = 'cuda',
     ):
         """
         For each path in model_paths:
@@ -956,7 +1004,7 @@ class DPSHyperEvaluator:
             out_dir = os.path.join(output_root, model_name)
             os.makedirs(out_dir, exist_ok=True)
 
-            print(f"[{m_idx+1}/{len(model_paths)}] Loading model {model_name}...")
+            print(f"[{m_idx + 1}/{len(model_paths)}] Loading model {model_name}...")
             model = self.load_model(model_path, device)
             self.model = model
             self.latents = self._build_latents_and_pos()
@@ -990,10 +1038,10 @@ class DPSHyperEvaluator:
                         save_dir=out_dir,
                         tag=f"uncond_{i:02d}"
                     )
-                    
+
                 np.save(os.path.join(out_dir, f"sample_{i:02d}_seed{seed}.npy"), recon)
-                
-                plt.figure(figsize=(4,4), dpi=100)
+
+                plt.figure(figsize=(4, 4), dpi=100)
                 plt.imshow(recon, cmap='gray')
                 plt.axis('off')
                 plt.tight_layout(pad=0)
@@ -1001,7 +1049,6 @@ class DPSHyperEvaluator:
                 save_path = os.path.join(out_dir, f"sample_{i:02d}_seed{seed}.png")
                 plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
                 plt.close()
-            
+
             print(f"Saved {num_samples_per_model} samples {out_dir}")
-    
-    
+

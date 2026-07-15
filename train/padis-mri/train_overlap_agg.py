@@ -6,8 +6,13 @@
 # found here: https://github.com/jasonhu4/PaDIS/blob/main/LICENSE.
 # ---------------------------------------------------------------
 
-"""Train diffusion-based generative model using the techniques described in the
-paper "Elucidating the Design Space of Diffusion-Based Generative Models"."""
+"""Train PaDIS-MRI with AGG-mild sampling and independent overlap consistency.
+
+For patch sizes other than ``active_patch_size`` (default 64), the loss uses
+AGG-mild single-patch sampling with the standard Patch EDM objective.  For the
+active patch size, it uses AGG-guided overlapping-pair sampling, independent
+noise realizations at a shared sigma, and center-guided overlap consistency.
+"""
 
 import os
 import sys
@@ -80,30 +85,6 @@ def parse_float_list(s):
               type=click.Choice(['ddpmpp', 'ncsnpp', 'adm']), default='ddpmpp', show_default=True)
 @click.option('--precond', help='Preconditioning & loss function', metavar='vp|ve|edm',
               type=click.Choice(['vp', 've', 'edm', 'pedm']), default='pedm', show_default=True)
-# EDM scale parameters.
-# For the scale-matched patch experiment:
-# sigma_data=0.16, P_mean=-2.34, P_std=1.2.
-@click.option(
-    '--sigma-data',
-    help='Expected clean patch standard deviation used by EDM preconditioning and loss',
-    type=click.FloatRange(min=0, min_open=True),
-    default=0.16,
-    show_default=True,
-)
-@click.option(
-    '--p-mean',
-    help='Mean of log(sigma) for EDM training noise',
-    type=float,
-    default=-2.34,
-    show_default=True,
-)
-@click.option(
-    '--p-std',
-    help='Standard deviation of log(sigma) for EDM training noise',
-    type=click.FloatRange(min=0, min_open=True),
-    default=1.2,
-    show_default=True,
-)
 # Hyperparameters.
 @click.option('--duration', help='Training duration', metavar='MIMG', type=click.FloatRange(min=0, min_open=True),
               default=200, show_default=True)
@@ -144,6 +125,28 @@ def parse_float_list(s):
 @click.option('--seed', help='Random seed  [default: random]', metavar='INT', type=int)
 @click.option('--transfer', help='Transfer learning from network pickle', metavar='PKL|URL', type=str)
 @click.option('--resume', help='Resume from previous training state', metavar='PT', type=str)
+@click.option('--lambda-overlap', help='Center-guided overlap auxiliary loss weight',
+              type=click.FloatRange(min=0), default=0.3, show_default=True)
+@click.option('--active-patch-size', help='Patch size using AGG-guided overlap-pair training',
+              type=click.IntRange(min=2), default=64, show_default=True)
+@click.option('--agg-sample-prob', help='Probability of replacing uniform sampling by AGG sampling',
+              type=click.FloatRange(min=0, max=1), default=0.65, show_default=True)
+@click.option('--agg-thr-ratio', help='Relative magnitude threshold for anatomical support',
+              type=click.FloatRange(min=0), default=0.05, show_default=True)
+@click.option('--agg-base', help='Positive base score retaining background sampling',
+              type=click.FloatRange(min=0, min_open=True), default=0.08, show_default=True)
+@click.option('--agg-radius-scale', help='Scale of the equivalent anatomical radius',
+              type=click.FloatRange(min=0, min_open=True), default=1.15, show_default=True)
+@click.option('--agg-tau-scale', help='Radial falloff scale relative to the anatomical radius',
+              type=click.FloatRange(min=0, min_open=True), default=0.30, show_default=True)
+@click.option('--agg-min-pixels', help='Minimum anatomical support pixels before AGG is used',
+              type=click.IntRange(min=1), default=64, show_default=True)
+@click.option('--agg-grad-alpha', help='Gradient emphasis coefficient',
+              type=click.FloatRange(min=0), default=1.0, show_default=True)
+@click.option('--agg-grad-clip-q', help='Quantile used to clip patch-gradient scores',
+              type=click.FloatRange(min=0, max=1, min_open=True), default=0.95, show_default=True)
+@click.option('--agg-gate-base', help='Minimum anatomy-gate value',
+              type=click.FloatRange(min=0, max=1), default=0.25, show_default=True)
 @click.option('-n', '--dry-run', help='Print training options and exit', is_flag=True)
 def main(**kwargs):
     """Train diffusion-based generative model using the techniques described in the
@@ -152,7 +155,7 @@ def main(**kwargs):
     Examples:
 
     # Train DDPM++ model for class-conditional CIFAR-10 using 8 GPUs
-    torchrun --standalone --nproc_per_node=8 train.py --outdir=training-runs \\
+    torchrun --standalone --nproc_per_node=1 train_overlap_agg.py --outdir=training-runs \\
         --data=datasets/cifar10-32x32.zip --cond=1 --arch=ddpmpp
     """
     opts = dnnlib.EasyDict(kwargs)
@@ -217,23 +220,36 @@ def main(**kwargs):
         c.loss_kwargs.class_name = 'training.loss.VELoss'
     elif opts.precond == 'pedm':
         c.network_kwargs.class_name = 'training.networks.Patch_EDMPrecond'
-        c.network_kwargs.sigma_data = opts.sigma_data
-        c.loss_kwargs.class_name = 'training.patch_loss.Patch_EDMLoss'
-        c.loss_kwargs.update(
-            P_mean=opts.p_mean,
-            P_std=opts.p_std,
-            sigma_data=opts.sigma_data,
+        c.network_kwargs.sigma_data = 0.5
+
+        # Dedicated AGG-mild + independent-overlap loss.
+        # All sampler parameters are part of loss_kwargs, so they are recorded
+        # in training_options.json and restored with persistent checkpoints.
+        c.loss_kwargs.class_name = (
+            'training.patch_overlap_independent_agg_loss.'
+            'AggIndependentNoiseOverlapPatch_EDMLoss'
         )
+        c.loss_kwargs.update(
+            P_mean=-1.2,
+            P_std=1.2,
+            sigma_data=0.5,
+            lambda_overlap=opts.lambda_overlap,
+            active_patch_size=opts.active_patch_size,
+            agg_sample_prob=opts.agg_sample_prob,
+            agg_thr_ratio=opts.agg_thr_ratio,
+            agg_base=opts.agg_base,
+            agg_radius_scale=opts.agg_radius_scale,
+            agg_tau_scale=opts.agg_tau_scale,
+            agg_min_pixels=opts.agg_min_pixels,
+            agg_grad_alpha=opts.agg_grad_alpha,
+            agg_grad_clip_q=opts.agg_grad_clip_q,
+            agg_gate_base=opts.agg_gate_base,
+        )
+
     else:
         assert opts.precond == 'edm'
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
-        c.network_kwargs.sigma_data = opts.sigma_data
         c.loss_kwargs.class_name = 'training.loss.EDMLoss'
-        c.loss_kwargs.update(
-            P_mean=opts.p_mean,
-            P_std=opts.p_std,
-            sigma_data=opts.sigma_data,
-        )
 
     # Network options.
     if opts.cbase is not None:
@@ -284,10 +300,14 @@ def main(**kwargs):
     dtype_str = 'fp16' if c.network_kwargs.use_fp16 else 'fp32'
     dataset_name = 'aapm_3'
     desc = f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
-    if opts.precond in ['pedm', 'edm']:
-        sigma_tag = str(opts.sigma_data).replace('.', 'p')
-        pmean_tag = str(abs(opts.p_mean)).replace('.', 'p')
-        desc += f'-sd{sigma_tag}-pm{pmean_tag}-ps{opts.p_std}'
+    lambda_tag = str(opts.lambda_overlap).replace('.', 'p')
+    prob_tag = str(opts.agg_sample_prob).replace('.', 'p')
+    desc += (
+        f'-agg-mild-overlap-independent-center'
+        f'-lam{lambda_tag}'
+        f'-p{opts.active_patch_size}'
+        f'-prob{prob_tag}'
+    )
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 
@@ -316,10 +336,18 @@ def main(**kwargs):
     dist.print0(f'Class-conditional:       {c.dataset_kwargs.use_labels}')
     dist.print0(f'Network architecture:    {opts.arch}')
     dist.print0(f'Preconditioning & loss:  {opts.precond}')
-    if opts.precond in ['pedm', 'edm']:
-        dist.print0(f'EDM sigma_data:          {opts.sigma_data}')
-        dist.print0(f'EDM P_mean:              {opts.p_mean}')
-        dist.print0(f'EDM P_std:               {opts.p_std}')
+    dist.print0('Training mode:           AGG-mild + independent overlap')
+    dist.print0(f'Overlap loss weight:     {opts.lambda_overlap}')
+    dist.print0(f'Active overlap patch:    {opts.active_patch_size}')
+    dist.print0(f'AGG sample probability:  {opts.agg_sample_prob}')
+    dist.print0(f'AGG threshold ratio:     {opts.agg_thr_ratio}')
+    dist.print0(f'AGG base score:          {opts.agg_base}')
+    dist.print0(f'AGG radius scale:        {opts.agg_radius_scale}')
+    dist.print0(f'AGG tau scale:           {opts.agg_tau_scale}')
+    dist.print0(f'AGG minimum pixels:      {opts.agg_min_pixels}')
+    dist.print0(f'AGG gradient alpha:      {opts.agg_grad_alpha}')
+    dist.print0(f'AGG gradient clip q:     {opts.agg_grad_clip_q}')
+    dist.print0(f'AGG gate base:           {opts.agg_gate_base}')
     dist.print0(f'Number of GPUs:          {dist.get_world_size()}')
     dist.print0(f'Batch size:              {c.batch_size}')
     dist.print0(f'Mixed-precision:         {c.network_kwargs.use_fp16}')
