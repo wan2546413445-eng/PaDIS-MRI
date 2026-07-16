@@ -123,7 +123,7 @@ unset PADIS_AGG_ENABLE PADIS_AGG_SAMPLE_PROB PADIS_AGG_THR_RATIO \
 CUDA_VISIBLE_DEVICES="$GPU" torchrun \
     --standalone \
     --nproc_per_node="$NPROC" \
-    train/padis-mri/train_overlap.py \
+    train/padis-mri/train_overlap_agg.py \
     --outdir="$OUTDIR" \
     --data="$DATA_DIR" \
     --cond=0 \
@@ -156,15 +156,4 @@ CUDA_VISIBLE_DEVICES="$GPU" torchrun \
     --dump="$DUMP" \
     --workers="$WORKERS" \
     --seed="$SEED" \
-    --lambda-overlap=0.3 \
-    --active-patch-size=64 \
-    --agg-sample-prob=0.65 \
-    --agg-thr-ratio=0.05 \
-    --agg-base=0.08 \
-    --agg-radius-scale=1.15 \
-    --agg-tau-scale=0.30 \
-    --agg-min-pixels=64 \
-    --agg-grad-alpha=1.0 \
-    --agg-grad-clip-q=0.95 \
-    --agg-gate-base=0.25
     2>&1 | tee -a "$LOG_FILE"
