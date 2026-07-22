@@ -2,37 +2,42 @@
 set -e
 set -o pipefail
 
-GPU=4
+GPU=6
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
 
-# 改成你实际训练得到的 snapshot
-MODEL_PATH=$RESULT_ROOT/PaDIS-MRI-runs/training-runs-agg-overlap/main_agg_overlap_s16s32s64_ovr025_lam005_cbase96_b16_fp32/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch16-fp32-agg_overlap-ovr0.25-lam0.05/network-snapshot-005000.pkl
+MODEL_PATH=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/checkpoints/00010-aapm_3-uncond-ddpmpp-pedm-gpus1-batch2-fp32-d384_pad64_AGG_mild_s2025/network-snapshot-010000.pkl
 
 VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB
 
-SAVE_DIR=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/agg_overlap/agg_overlap_fixed64_lam005_5000k_s78_i10_val_all
-LOG_DIR=$RESULT_ROOT/results_record/logs
+EXP_NAME=agg_mild_ckpt010000_trainseed123_valseed123_all32
+SAVE_DIR="$RESULT_ROOT/PaDIS-MRI-recon/$EXP_NAME"
+LOG_DIR="$SAVE_DIR/logs"
 
 mkdir -p $SAVE_DIR
 mkdir -p $LOG_DIR
 
 TIME_TAG=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE=$LOG_DIR/eval_agg_overlap_fixed64_lam005_5000k_s78_i10_val_all_gpu${GPU}_${TIME_TAG}.log
+LOG_FILE="$LOG_DIR/eval_${EXP_NAME}_gpu${GPU}_${TIME_TAG}.log"
 
 echo "==================================================" | tee $LOG_FILE
-echo "Aggregation-Aware Overlap PaDIS-MRI Eval" | tee -a $LOG_FILE
+echo "agg_mild PaDIS-MRI Eval all" | tee -a $LOG_FILE
 echo "GPU=$GPU" | tee -a $LOG_FILE
 echo "MODEL_PATH=$MODEL_PATH" | tee -a $LOG_FILE
 echo "VAL_DIR=$VAL_DIR" | tee -a $LOG_FILE
 echo "SAVE_DIR=$SAVE_DIR" | tee -a $LOG_FILE
-echo "LOG_FILE=$LOG_FILE" | tee -a $LOG_FILE
 echo "==================================================" | tee -a $LOG_FILE
 
+
 cd $CODE_ROOT
-export PYTHONPATH=$CODE_ROOT/train/padis-mri:$PYTHONPATH
+
+
+# 关键：加入training模块路径
+export PYTHONPATH=$CODE_ROOT:$CODE_ROOT/train/padis-mri:$PYTHONPATH
+
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 
 CUDA_VISIBLE_DEVICES=$GPU python eval/run.py \
   --run_evaluate \
@@ -40,13 +45,17 @@ CUDA_VISIBLE_DEVICES=$GPU python eval/run.py \
   --model_path $MODEL_PATH \
   --val_dir $VAL_DIR \
   --image_size 384 \
-  --pad 96 \
+  --pad 64 \
   --psize 64 \
   --mask_select 7 \
   --val_count 32 \
   --sample_indices 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31 \
+  --seed 123 \
+  --fixed_seed_per_sample \
   --zeta 3.0 \
   --steps 78 \
   --inner_loops 10 \
+  --report_every 1 \
   --save_dir $SAVE_DIR \
+  --gpus 0 \
   2>&1 | tee -a $LOG_FILE

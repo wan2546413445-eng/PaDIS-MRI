@@ -9,8 +9,10 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import dnnlib
 
-from evaluator import DPSHyperEvaluator
+from evaluator import DPSHyperEvaluator as StandardDPSHyperEvaluator
+from evaluator_fixed_seed123 import DPSHyperEvaluator as FixedSeedDPSHyperEvaluator
 from utils import post_eval_normalize
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="DPS/EDM/ADMM experiment runner")
@@ -24,6 +26,15 @@ def parse_args():
     p.add_argument("--val_count", type=int, default=32)
     p.add_argument("--seed", type=int, default=123)
     p.add_argument(
+        "--fixed_seed_per_sample",
+        action="store_true",
+        help=(
+            "Reset Python/NumPy/PyTorch RNGs to --seed before every sample. "
+            "Use one GPU so a sample evaluated alone matches the same sample "
+            "inside a full validation run."
+        ),
+    )
+    p.add_argument(
         "--sample_indices",
         type=str,
         default="",
@@ -31,44 +42,23 @@ def parse_args():
              "If provided, --val_count random sampling is ignored."
     )
 
-    # algo selection
-    p.add_argument("--algo", type=str, required=True, choices=["padis", "edm", "admm"], help="Choose reconstruction algo: padis, edm, or admm")
-
-    # hyperparams
-    p.add_argument("--zeta", type=float, default=3.0, help="Chosen zeta value (required for padis/edm calls)")
-    p.add_argument("--steps", type=int, default=104, help="Number of steps (or ADMM iters)")
-    p.add_argument(
-        "--inner_loops",
-        type=int,
-        default=10,
-        help="Number of posterior update loops per outer diffusion step for PaDIS dps2."
-    )
-    p.add_argument("--save_dir", type=str, required=True, help="Where to write outputs")
-    p.add_argument("--gpus", type=int, nargs="+", default=None, help="GPU ids (e.g. --gpus 0 1)")
+    p.add_argument("--algo", type=str, required=True, choices=["padis", "edm", "admm"])
+    p.add_argument("--zeta", type=float, default=3.0)
+    p.add_argument("--steps", type=int, default=104)
+    p.add_argument("--inner_loops", type=int, default=10)
+    p.add_argument("--save_dir", type=str, required=True)
+    p.add_argument("--gpus", type=int, nargs="+", default=None)
     p.add_argument("--report_every", type=int, default=1)
-    p.add_argument("--lam", type=float, default=1e-4, help="Lambda for TV regularization in ADMM")
-    p.add_argument(
-        "--save_intermediate",
-        action="store_true",
-        help="Save intermediate PaDIS reconstruction figures and author-style metrics during posterior sampling."
-    )
+    p.add_argument("--lam", type=float, default=1e-4)
+    p.add_argument("--save_intermediate", action="store_true")
+    p.add_argument("--intermediate_every", type=int, default=10)
 
-    p.add_argument(
-        "--intermediate_every",
-        type=int,
-        default=10,
-        help="Save intermediate diagnostics every N outer diffusion steps; step 1 and final step are always saved."
-    )
-
-    # uncertainty quantification
     p.add_argument("--run_evaluate_uncertainty", action="store_true")
-    p.add_argument("--uncertainty_mask_list", type=str, default="0,1,2,3,4,5,6,7,8,9", help="Comma-separated seeds for uncertainty (interpreted as seeds for padis/edm, mask ids for admm)")
+    p.add_argument("--uncertainty_mask_list", type=str, default="0,1,2,3,4,5,6,7,8,9")
 
-    # patch size sweep
     p.add_argument("--run_sweep_patch_sizes", action="store_true")
-    p.add_argument("--patch_sizes", type=str, default="96", help="Comma-separated patch sizes")
+    p.add_argument("--patch_sizes", type=str, default="96")
 
-    # hyperparam search
     p.add_argument("--run_hparam_search", action="store_true")
     p.add_argument("--zeta_min", type=float, default=1.0)
     p.add_argument("--zeta_max", type=float, default=10.0)
@@ -76,16 +66,13 @@ def parse_args():
     p.add_argument("--random_samples", type=int, default=5)
     p.add_argument("--subset_size", type=int, default=3)
 
-    # evaluate
     p.add_argument("--run_evaluate", action="store_true")
 
-    # mask sweep
     p.add_argument("--run_sweep_masks", action="store_true")
-    p.add_argument("--mask_list", type=str, default="2,4,6,8,10", help="Comma-separated mask IDs (or seeds)")
+    p.add_argument("--mask_list", type=str, default="2,4,6,8,10")
 
-    # unconditional samples
     p.add_argument("--run_uncond", action="store_true")
-    p.add_argument("--uncond_model_paths", type=str, default="", help="Comma-separated .pkl paths for unconditional sampling")
+    p.add_argument("--uncond_model_paths", type=str, default="")
     p.add_argument("--num_samples_per_model", type=int, default=3)
 
     return p.parse_args()
@@ -111,9 +98,24 @@ def main():
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = model.to(device).eval()
 
+    if args.fixed_seed_per_sample:
+        if args.gpus is not None and len(args.gpus) > 1:
+            raise ValueError(
+                "--fixed_seed_per_sample requires one GPU. "
+                "Use, for example, --gpus 0."
+            )
+        EvaluatorClass = FixedSeedDPSHyperEvaluator
+        print(
+            f"[RNG policy] fixed_per_sample: every validation sample "
+            f"restarts from seed={args.seed}"
+        )
+    else:
+        EvaluatorClass = StandardDPSHyperEvaluator
+        print("[RNG policy] legacy_continuous_stream")
+
     sample_indices = parse_list(args.sample_indices, cast=int)
 
-    opt = DPSHyperEvaluator(
+    opt = EvaluatorClass(
         model=model,
         mask_select=args.mask_select,
         val_dir=args.val_dir,
@@ -141,12 +143,12 @@ def main():
             args.zeta = float(best_zeta)
 
     if args.algo in ("padis", "edm") and args.zeta is None:
-        raise ValueError("--zeta is required for padis/edm runs (or run --run_hparam_search)")
+        raise ValueError("--zeta is required for padis/edm runs")
 
     if args.run_evaluate_uncertainty:
-        mask_list = parse_list(args.uncertainty_mask_list, cast=int)
+        seed_list = parse_list(args.uncertainty_mask_list, cast=int)
         opt.evaluate_uncertainty(
-            mask_list=mask_list,
+            seed_list=seed_list,
             zeta=args.zeta if args.algo in ("padis", "edm") else 0.0,
             num_steps=args.steps,
             pad=args.pad,
@@ -156,7 +158,7 @@ def main():
             gpus=args.gpus,
             report_every=args.report_every,
             tag=tag,
-            lam=args.lam
+            lam=args.lam,
         )
 
     if args.run_sweep_patch_sizes:
@@ -172,14 +174,16 @@ def main():
             tag="patch_sweep",
             report_every=args.report_every,
         )
+
     if args.algo == "padis":
         print(
             f"[PaDIS Budget] steps={args.steps}, "
             f"inner_loops={args.inner_loops}, "
             f"total_updates={args.steps * args.inner_loops}"
         )
+
     if args.run_evaluate:
-        metrics = opt.evaluate(
+        evaluate_kwargs = dict(
             zeta=args.zeta if args.algo in ("padis", "edm") else 0.0,
             num_steps=args.steps,
             inner_loops=args.inner_loops,
@@ -194,7 +198,11 @@ def main():
             save_intermediate=args.save_intermediate,
             intermediate_every=args.intermediate_every,
         )
-        s = metrics['summary']
+        if args.fixed_seed_per_sample:
+            evaluate_kwargs["strict_reproducible"] = True
+
+        metrics = opt.evaluate(**evaluate_kwargs)
+        s = metrics["summary"]
         print(f"PSNR:  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f}")
         print(f"SSIM:  {s['ssim_mean']:.4f} ± {s['ssim_std']:.4f}")
         print(f"NRMSE: {s['nrmse_mean']:.4f} ± {s['nrmse_std']:.4f}")
@@ -217,17 +225,15 @@ def main():
     if args.run_uncond:
         paths = [p for p in args.uncond_model_paths.split(",") if p.strip()]
         if not paths:
-            raise ValueError("--run_uncond requires --uncond_model_paths with at least one .pkl path")
+            raise ValueError("--run_uncond requires --uncond_model_paths")
         opt.generate_unconditional_samples(
             model_paths=paths,
             output_root=os.path.join(args.save_dir, "uncond"),
             num_samples_per_model=args.num_samples_per_model,
             algo=args.algo,
-            device='cuda' if torch.cuda.is_available() else 'cpu'
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
-
-    # Compute final metrics and plots. 
     recon_dir = os.path.join(args.save_dir, "evaluate", "recons")
     plot_dir = os.path.join(args.save_dir, "evaluate", "comp_plots")
     try:
@@ -240,6 +246,7 @@ def main():
         )
     except Exception as e:
         print(f"[post_eval_normalize] Skipped due to error: {e}")
+
 
 if __name__ == "__main__":
     main()

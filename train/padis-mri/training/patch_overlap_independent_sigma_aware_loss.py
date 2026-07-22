@@ -21,6 +21,11 @@
     piecewise:
         在 log-sigma 域中，从 sigma_low 处的 lambda_overlap 线性下降到
         sigma_high 处的 0；区间外分别截断为 lambda_overlap 和 0。
+    late_piecewise:
+        面向 late stage 的分段调度。在 sigma <= sigma_low 时使用
+        lambda_overlap，在 sigma >= sigma_high 时使用 overlap_lambda_floor，
+        中间在 log-sigma 域线性过渡。该模式可增强低噪声一致性，同时保留
+        较弱的高噪声约束。
 
 权重按样本计算。同一对 overlap patch 仍共用同一个 sigma，且不修改
 EDM 主损失的原始噪声权重。
@@ -55,6 +60,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         P_std=1.2,
         sigma_data=0.5,
         lambda_overlap=1.0,
+        overlap_lambda_floor=0.0,
         active_patch_size=64,
         overlap_weight_mode='fixed',
         overlap_sigma_center=0.2,
@@ -66,9 +72,18 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
 
         if lambda_overlap < 0:
             raise ValueError('lambda_overlap 必须大于或等于 0')
-        if overlap_weight_mode not in {'fixed', 'sigmoid', 'piecewise'}:
+        if overlap_lambda_floor < 0:
+            raise ValueError('overlap_lambda_floor 必须大于或等于 0')
+        if overlap_lambda_floor > lambda_overlap:
             raise ValueError(
-                'overlap_weight_mode 必须是 fixed、sigmoid 或 piecewise'
+                'overlap_lambda_floor 不能大于 lambda_overlap'
+            )
+        if overlap_weight_mode not in {
+            'fixed', 'sigmoid', 'piecewise', 'late_piecewise'
+        }:
+            raise ValueError(
+                'overlap_weight_mode 必须是 fixed、sigmoid、piecewise '
+                '或 late_piecewise'
             )
         if overlap_sigma_center <= 0:
             raise ValueError('overlap_sigma_center 必须大于 0')
@@ -82,6 +97,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             )
 
         self.lambda_overlap = float(lambda_overlap)
+        self.overlap_lambda_floor = float(overlap_lambda_floor)
         self.active_patch_size = int(active_patch_size)
         self.overlap_weight_mode = str(overlap_weight_mode)
         self.overlap_sigma_center = float(overlap_sigma_center)
@@ -103,13 +119,21 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             )
             return self.lambda_overlap * torch.sigmoid(logits)
 
-        # piecewise：在 log-sigma 域内线性变化。
+        # piecewise / late_piecewise：在 log-sigma 域内线性变化。
+        # sigma <= low 时 interpolation=1，sigma >= high 时为 0。
         log_low = math.log(self.overlap_sigma_low)
         log_high = math.log(self.overlap_sigma_high)
         interpolation = (
             log_high - sigma_per_sample.log()
         ) / (log_high - log_low)
-        return self.lambda_overlap * interpolation.clamp(0.0, 1.0)
+        interpolation = interpolation.clamp(0.0, 1.0)
+
+        if self.overlap_weight_mode == 'late_piecewise':
+            return self.overlap_lambda_floor + (
+                self.lambda_overlap - self.overlap_lambda_floor
+            ) * interpolation
+
+        return self.lambda_overlap * interpolation
 
     @staticmethod
     def _masked_mean(values, mask):
@@ -268,6 +292,14 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         )
         training_stats.report(
             'Loss/overlap_weight_max', lambda_per_sample.detach().max()
+        )
+        training_stats.report(
+            'Loss/overlap_weight_floor',
+            edm_loss.detach().new_tensor(self.overlap_lambda_floor),
+        )
+        training_stats.report(
+            'Loss/overlap_weight_ceiling',
+            edm_loss.detach().new_tensor(self.lambda_overlap),
         )
 
         # lambda=0 即 paired-sampling control：双 patch 前向和主损失都保留，

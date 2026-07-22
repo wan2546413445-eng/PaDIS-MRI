@@ -1,0 +1,21 @@
+test_cuda_peak_memory_is_recorded (__main__.CudaMemoryTests.test_cuda_peak_memory_is_recorded) ... skipped 'CUDA is unavailable'
+test_lgfc_and_original_have_same_denoiser_call_count (__main__.DenoiserBudgetTests.test_lgfc_and_original_have_same_denoiser_call_count) ... Review harness note: full repository dependencies are not bundled in the zip;
+the baseline dps2 core is supplied by a lightweight test harness for parity testing.
+  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 178.79it/s]
+ok
+test_baseline_bypass_calls_original (__main__.FrequencyCorrectionTests.test_baseline_bypass_calls_original) ... ok
+test_dc_backtracking_accepts_reduced_candidate (__main__.FrequencyCorrectionTests.test_dc_backtracking_accepts_reduced_candidate) ... ok
+test_dc_backtracking_skips_when_all_candidates_fail (__main__.FrequencyCorrectionTests.test_dc_backtracking_skips_when_all_candidates_fail) ... ok
+test_dc_first_candidate_is_accepted (__main__.FrequencyCorrectionTests.test_dc_first_candidate_is_accepted) ... ok
+test_frequency_update_interface_has_no_ground_truth (__main__.FrequencyCorrectionTests.test_frequency_update_interface_has_no_ground_truth) ... ok
+test_invalid_configs_raise (__main__.FrequencyCorrectionTests.test_invalid_configs_raise) ... ok
+test_mask_multicoil_fft_and_complex_dtype (__main__.FrequencyCorrectionTests.test_mask_multicoil_fft_and_complex_dtype) ... ok
+test_output_is_finite_and_dc_residual_is_finite (__main__.FrequencyCorrectionTests.test_output_is_finite_and_dc_residual_is_finite) ... ok
+test_reference_last_ema_detach_and_outer_reset (__main__.FrequencyCorrectionTests.test_reference_last_ema_detach_and_outer_reset) ... ok
+test_relative_update_clipping (__main__.FrequencyCorrectionTests.test_relative_update_clipping) ... ok
+test_zero_weight_and_full_mask_are_identity (__main__.FrequencyCorrectionTests.test_zero_weight_and_full_mask_are_identity) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.062s
+
+OK (skipped=1)

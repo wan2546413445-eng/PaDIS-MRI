@@ -257,7 +257,12 @@ def post_eval_normalize(
         }
 
     with open(json_path, "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(
+            results,
+            f,
+            indent=2,
+            default=lambda x: float(x)
+        )
 
     print(f"[post_eval_normalize] Metrics → {json_path}")
     print(f"[post_eval_normalize] Plots   → {plot_dir}")
