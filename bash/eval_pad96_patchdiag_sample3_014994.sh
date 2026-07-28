@@ -7,7 +7,7 @@ GPU=7
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/00_CURRENT_MAIN/mask_sensitivity/strict_sample3_compare
 
-MODEL_PATH=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/checkpoints/00003-aapm_3-uncond-ddpmpp-pedm-gpus1-batch2-fp32/network-snapshot-014994.pkl
+MODEL_PATH=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/baseline_seed123_to20k/brain/32dB/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch2-fp32-baseline-pad96-seed123-to20k/network-snapshot-010200.pkl
 
 RANDOM_VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB_sample3_only
 

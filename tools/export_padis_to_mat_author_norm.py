@@ -11,9 +11,9 @@ USE_BUILTIN_CONFIG = True
 
 
 BUILTIN_CONFIG = {
-    "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/00_CURRENT_MAIN/mask_sensitivity/strict_sample3_compare/baseline_ckpt014994_sample3_random_mask7_seed123/evaluate/recons",
-    "val_dir": r"/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB_sample3_only",
-    "out_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/equispaced_control/baseline_ckpt014994_sample3_random_mask7_seed123",
+    "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/LGFC_full32_baseline_and_agg_overlap/baseline_lgfc/sample_3/evaluate/recons",
+    "val_dir": r"/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB",
+    "out_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/baseline_lgfc/baseline_lgfc_ckpt010000_sample3_seed123",
     "idx": "all",
     "mask_select": 7,
     "save_kspace_maps": False,
