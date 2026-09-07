@@ -14,7 +14,7 @@ REFERENCE_ROOT = THIS_DIR.parent
 REPO_ROOT = Path(os.environ.get("PADIS_REPO_ROOT", str(REFERENCE_ROOT.parent))).resolve()
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "eval"))
-
+sys.path.insert(0, str(REPO_ROOT / "train" / "padis-mri"))
 import dnnlib
 from evaluator_mcpp import MCPPEvaluator
 
