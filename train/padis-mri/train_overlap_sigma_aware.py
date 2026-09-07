@@ -337,9 +337,16 @@ def float_tag(value):
     show_default=True,
 )
 @click.option(
+    '--overlap-lambda-floor',
+    help='Minimum overlap weight used by late_piecewise at high sigma',
+    type=click.FloatRange(min=0),
+    default=0.0,
+    show_default=True,
+)
+@click.option(
     '--overlap-weight-mode',
     help='Noise-dependent overlap weighting for independent mode',
-    type=click.Choice(['fixed', 'sigmoid', 'piecewise']),
+    type=click.Choice(['fixed', 'sigmoid', 'piecewise', 'late_piecewise']),
     default='fixed',
     show_default=True,
 )
@@ -359,14 +366,14 @@ def float_tag(value):
 )
 @click.option(
     '--overlap-sigma-low',
-    help='Low-sigma threshold for piecewise schedule and logging bins',
+    help='Low-sigma threshold for piecewise/late_piecewise and logging bins',
     type=click.FloatRange(min=0, min_open=True),
     default=0.1,
     show_default=True,
 )
 @click.option(
     '--overlap-sigma-high',
-    help='High-sigma threshold for piecewise schedule and logging bins',
+    help='High-sigma threshold for piecewise/late_piecewise and logging bins',
     type=click.FloatRange(min=0, min_open=True),
     default=0.5,
     show_default=True,
@@ -393,6 +400,10 @@ def main(**kwargs):
     if opts.overlap_sigma_high <= opts.overlap_sigma_low:
         raise click.ClickException(
             '--overlap-sigma-high must be greater than --overlap-sigma-low'
+        )
+    if opts.overlap_lambda_floor > opts.lambda_overlap:
+        raise click.ClickException(
+            '--overlap-lambda-floor must not exceed --lambda-overlap'
         )
 
     torch.multiprocessing.set_start_method('spawn')
@@ -518,6 +529,7 @@ def main(**kwargs):
                 P_std=1.2,
                 sigma_data=0.5,
                 lambda_overlap=opts.lambda_overlap,
+                overlap_lambda_floor=opts.overlap_lambda_floor,
                 active_patch_size=64,
                 overlap_weight_mode=opts.overlap_weight_mode,
                 overlap_sigma_center=opts.overlap_sigma_center,
@@ -638,6 +650,12 @@ def main(**kwargs):
                 f'-wpiece-s{float_tag(opts.overlap_sigma_low)}'
                 f'-{float_tag(opts.overlap_sigma_high)}'
             )
+        elif opts.overlap_weight_mode == 'late_piecewise':
+            desc += (
+                f'-wlate-f{float_tag(opts.overlap_lambda_floor)}'
+                f'-s{float_tag(opts.overlap_sigma_low)}'
+                f'-{float_tag(opts.overlap_sigma_high)}'
+            )
 
     if opts.desc is not None:
         desc += f'-{opts.desc}'
@@ -681,6 +699,9 @@ def main(**kwargs):
         dist.print0('Active overlap patch:    64')
         dist.print0(
             f'Overlap weight mode:     {opts.overlap_weight_mode}'
+        )
+        dist.print0(
+            f'Overlap weight floor:    {opts.overlap_lambda_floor}'
         )
         dist.print0(
             f'Overlap sigma center:    {opts.overlap_sigma_center}'

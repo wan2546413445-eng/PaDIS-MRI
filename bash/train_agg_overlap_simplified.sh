@@ -22,7 +22,7 @@ AGG_RHO=${AGG_RHO:-0.65}
 AGG_GAMMA=${AGG_GAMMA:-1.0}
 LAMBDA_OC=${LAMBDA_OC:-0.3}
 
-BATCH_SIZE=2
+BATCH_SIZE=4
 BATCH_GPU=1
 LR=1e-4
 DROPOUT=0.05
@@ -63,7 +63,7 @@ export WANDB_NAME="$RUN_NAME"
 CUDA_VISIBLE_DEVICES="$GPU" torchrun \
     --standalone \
     --nproc_per_node=1 \
-    train/padis-mri/train_overlap_agg.py \
+    train/padis-mri/train_overlap_agg_v2.py \
     --outdir="$OUTDIR" \
     --data="$DATA_DIR" \
     --cond=0 \

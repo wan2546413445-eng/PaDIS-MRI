@@ -17,7 +17,14 @@ from pathlib import Path
 
 import torch
 
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TRAIN_ROOT = REPO_ROOT / "train" / "padis-mri"
+EVAL_ROOT = REPO_ROOT / "eval"
+
+sys.path.insert(0, str(TRAIN_ROOT))
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(EVAL_ROOT))
+
 import dnnlib
 
 from evaluator_lmpc import DPSHyperEvaluatorLMPC
@@ -217,7 +224,7 @@ def main():
         psize=args.psize,
         algo="padis",
         save_dir=os.path.join(args.save_dir, "evaluate"),
-        tag="patch_lmpc",
+        tag="patch",
         gpus=args.gpus,
         report_every=args.report_every,
         save_intermediate=args.save_intermediate,

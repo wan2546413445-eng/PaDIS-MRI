@@ -2,17 +2,18 @@
 set -e
 set -o pipefail
 
-GPU=6
+GPU=3
 
 CODE_ROOT=/mnt/SSD/wsy/projects/PaDIS-MRI-main
 RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
 
-MODEL_PATH=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/checkpoints/00010-aapm_3-uncond-ddpmpp-pedm-gpus1-batch2-fp32-d384_pad64_AGG_mild_s2025/network-snapshot-010000.pkl
+MODEL_PATH=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/agg_overlap_simplified_training-runs/brain/32dB/main_agg_overlap_rho0p65_gamma1p0_oc0p3_pad64_seed123/00001-aapm_3-uncond-ddpmpp-pedm-gpus1-batch4-fp32-agg-overlap-rho0p65-gamma1p0-oc0p3-p64/network-snapshot-010006.pkl
 
 VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t1-flair_subsamp/32dB
-
-EXP_NAME=agg_mild_ckpt010000_trainseed123_valseed123_all32
-SAVE_DIR="$RESULT_ROOT/PaDIS-MRI-recon/$EXP_NAME"
+#VAL_DIR=/mnt/SSD2/wsy/brain_multicoil/fastmri_3T_eval/val_t1-flair_subsamp/32dB
+#VAL_DIR=/mnt/SSD/wsy/data/fastmri_batch0_eval/val_t2/32dB
+EXP_NAME=AGG_oc_ckpt010006_T1_flair_trainseed123_valseed123_all32_s78
+SAVE_DIR="$RESULT_ROOT/PaDIS-MRI-recon/T1_FLAIR/03_MODULE_TRIALS/AGG/$EXP_NAME"
 LOG_DIR="$SAVE_DIR/logs"
 
 mkdir -p $SAVE_DIR
@@ -22,7 +23,7 @@ TIME_TAG=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/eval_${EXP_NAME}_gpu${GPU}_${TIME_TAG}.log"
 
 echo "==================================================" | tee $LOG_FILE
-echo "agg_mild PaDIS-MRI Eval all" | tee -a $LOG_FILE
+echo "PaDIS-MRI AGG OC  Eval all" | tee -a $LOG_FILE
 echo "GPU=$GPU" | tee -a $LOG_FILE
 echo "MODEL_PATH=$MODEL_PATH" | tee -a $LOG_FILE
 echo "VAL_DIR=$VAL_DIR" | tee -a $LOG_FILE

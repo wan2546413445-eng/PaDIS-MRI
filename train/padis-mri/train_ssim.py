@@ -171,6 +171,12 @@ def _require_fixed(name, actual, expected):
     show_default=True,
 )
 @click.option('-n', '--dry-run', is_flag=True)
+@click.option(
+    '--resume',
+    type=str,
+    default=None,
+    help='Resume from training-state-XXXXXX.pt.',
+)
 def main(**kwargs):
     """Run Baseline + low-noise magnitude SSIM without AGG/Overlap/LGFC."""
     opts = dnnlib.EasyDict(kwargs)
@@ -269,6 +275,41 @@ def main(**kwargs):
     config.snapshot_ticks = None if opts.snap == 0 else opts.snap
     config.state_dump_ticks = None if opts.dump == 0 else opts.dump
     config.seed = opts.seed
+
+    # 按仓库原有 training_loop 接口恢复网络、优化器和训练进度。
+    # 对应 snapshot 用于恢复 EMA；state dump 用于恢复在线网络与优化器。
+    if opts.resume is not None:
+        resume_state = os.path.abspath(opts.resume)
+        match = re.fullmatch(
+            r'training-state-(\d+)\.pt',
+            os.path.basename(resume_state),
+        )
+        if match is None or not os.path.isfile(resume_state):
+            raise click.ClickException(
+                '--resume must point to an existing '
+                'training-state-XXXXXX.pt file'
+            )
+
+        resume_kimg = int(match.group(1))
+        resume_pkl = os.path.join(
+            os.path.dirname(resume_state),
+            f'network-snapshot-{resume_kimg:06d}.pkl',
+        )
+        if not os.path.isfile(resume_pkl):
+            raise click.ClickException(
+                'The matching EMA snapshot is missing: '
+                f'{resume_pkl}'
+            )
+        if config.total_kimg <= resume_kimg:
+            raise click.ClickException(
+                f'--duration resolves to {config.total_kimg} kimg, '
+                f'which must be greater than resume progress '
+                f'{resume_kimg} kimg'
+            )
+
+        config.resume_pkl = resume_pkl
+        config.resume_state_dump = resume_state
+        config.resume_kimg = resume_kimg
 
     cond_string = 'uncond'
     dtype_string = 'fp16' if opts.fp16 else 'fp32'

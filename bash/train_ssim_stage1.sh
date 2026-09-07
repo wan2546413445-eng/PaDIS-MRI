@@ -10,10 +10,12 @@ NPROC="${NPROC:-1}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 DATA_DIR="${DATA_DIR:-}"
 OUT_ROOT="${OUT_ROOT:-}"
-BASELINE_MODEL_PATH="${BASELINE_MODEL_PATH:-}"
 SSIM_PYCACHE_DIR="${SSIM_PYCACHE_DIR:-${TMPDIR:-/tmp}/padis_ssim_pycache}"
 LOG_DIR="${LOG_DIR:-${OUT_ROOT:-${TMPDIR:-/tmp}}/logs}"
-
+TARGET_KIMG_OVERRIDE="${TARGET_KIMG:-}"
+SNAP_OVERRIDE="${SNAP:-}"
+DUMP_OVERRIDE="${DUMP:-}"
+RESUME_STATE="${RESUME_STATE:-}"
 if [[ -z "${DATA_DIR}" || ! -f "${DATA_DIR}/noisy.pt" ]]; then
     echo "Set DATA_DIR to the training directory containing noisy.pt." >&2
     exit 2
@@ -24,6 +26,11 @@ if [[ -z "${OUT_ROOT}" ]]; then
 fi
 if [[ "${NPROC}" != "1" ]]; then
     echo "SSIM stage 1 is fixed to one GPU; set NPROC=1." >&2
+    exit 2
+fi
+
+if [[ -n "${RESUME_STATE}" && "${MODE}" != "main" ]]; then
+    echo "RESUME_STATE is only valid when MODE=main." >&2
     exit 2
 fi
 
@@ -43,33 +50,34 @@ case "${MODE}" in
         export WANDB_MODE="${WANDB_MODE:-disabled}"
         ;;
     main)
-        if [[ -z "${BASELINE_MODEL_PATH}" ]]; then
-            echo "MODE=main requires BASELINE_MODEL_PATH." >&2
-            exit 2
-        fi
-        if [[ ! -f "${BASELINE_MODEL_PATH}" ]]; then
-            echo "Baseline checkpoint not found: ${BASELINE_MODEL_PATH}" >&2
-            exit 2
-        fi
-        checkpoint_name="$(basename -- "${BASELINE_MODEL_PATH}")"
-        if [[ ! "${checkpoint_name}" =~ ^network-snapshot-([0-9]+)\.pkl$ ]]; then
-            echo "BASELINE_MODEL_PATH must end in network-snapshot-XXXXXX.pkl." >&2
-            exit 2
-        fi
-        TARGET_KIMG="$((10#${BASH_REMATCH[1]}))"
-        if (( TARGET_KIMG < 1 )); then
-            echo "Parsed TARGET_KIMG must be positive." >&2
-            exit 2
-        fi
+        TARGET_KIMG="${TARGET_KIMG_OVERRIDE:-10000}"
         RUN_DESC="ssim-stage1-main-to${TARGET_KIMG}kimg"
-        SNAP=50
-        DUMP=500
+
+        SNAP="${SNAP_OVERRIDE:-1000}"
+        DUMP="${DUMP_OVERRIDE:-2000}"
         ;;
     *)
         echo "MODE must be one of: smoke, probe, main." >&2
         exit 2
         ;;
 esac
+
+if ! [[ "${TARGET_KIMG}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "TARGET_KIMG must be a positive integer; received: ${TARGET_KIMG}" >&2
+    exit 2
+fi
+if ! [[ "${SNAP}" =~ ^[0-9]+$ ]]; then
+    echo "SNAP must be a non-negative integer; received: ${SNAP}" >&2
+    exit 2
+fi
+if ! [[ "${DUMP}" =~ ^[0-9]+$ ]]; then
+    echo "DUMP must be a non-negative integer; received: ${DUMP}" >&2
+    exit 2
+fi
+if [[ -n "${RESUME_STATE}" && ! -f "${RESUME_STATE}" ]]; then
+    echo "Resume state not found: ${RESUME_STATE}" >&2
+    exit 2
+fi
 
 DURATION="$(
     awk -v target_kimg="${TARGET_KIMG}" \
@@ -116,9 +124,15 @@ bash -n "${REPO_ROOT}/bash/eval_ssim_stage1.sh"
     echo "SSIM_SIGMA_MAX=0.50"
     echo "SNAP=${SNAP}"
     echo "DUMP=${DUMP}"
+    echo "RESUME_STATE=${RESUME_STATE:-<none>}"
     echo "LOG_FILE=${LOG_FILE}"
     echo "=================================================="
 } | tee "${LOG_FILE}"
+
+RESUME_ARGS=()
+if [[ -n "${RESUME_STATE}" ]]; then
+    RESUME_ARGS+=(--resume "${RESUME_STATE}")
+fi
 
 cd "${REPO_ROOT}"
 CUDA_VISIBLE_DEVICES="${GPU}" \
@@ -141,6 +155,7 @@ torchrun --standalone --nproc_per_node="${NPROC}" \
     --seed 123 \
     --workers 4 \
     --fp16 False \
+    "${RESUME_ARGS[@]}" \
     --ssim-weight 0.50 \
     --ssim-sigma-max 0.50 \
     --ssim-window-size 11 \

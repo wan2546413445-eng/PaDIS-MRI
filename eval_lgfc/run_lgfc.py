@@ -76,8 +76,8 @@ def _stage1_validate(args) -> None:
         raise ValueError("LGFC stage 1 fixes --inner_loops at 10")
     if args.pad != 64 or args.psize != 64:
         raise ValueError("LGFC stage 1 fixes --pad and --psize at 64")
-    if args.mask_select != 7:
-        raise ValueError("LGFC stage 1 fixes --mask_select at 7")
+    if args.mask_select not in (4, 7):
+        raise ValueError("LGFC supports --mask_select 4 or 7")
     if args.zeta != 3.0:
         raise ValueError("LGFC stage 1 fixes --zeta at 3")
     if args.seed != 123:

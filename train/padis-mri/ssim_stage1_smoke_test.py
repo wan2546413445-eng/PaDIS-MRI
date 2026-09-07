@@ -401,6 +401,28 @@ def _diagnostic_ratios():
         'ssim_to_edm_gradient_norm_ratio': gradient_ratio,
         'warnings': warnings,
     }
+def _safe_quantiles(magnitude, max_samples=2_000_000):
+    flat = magnitude.reshape(-1)
+
+    if flat.numel() > max_samples:
+        generator = torch.Generator(device=flat.device)
+        generator.manual_seed(123)
+
+        indices = torch.randperm(
+            flat.numel(),
+            generator=generator,
+            device=flat.device
+        )[:max_samples]
+
+        flat = flat[indices]
+
+    q = torch.tensor(
+        [0.95, 0.99, 0.995, 0.999],
+        device=flat.device,
+        dtype=flat.dtype,
+    )
+
+    return torch.quantile(flat, q)
 
 
 def _training_data_statistics(path):
@@ -413,10 +435,7 @@ def _training_data_statistics(path):
         raise KeyError(f"{path} does not contain 'x_est_gt'")
     value = payload['x_est_gt']
     magnitude = value.abs().float().reshape(-1)
-    quantiles = torch.quantile(
-        magnitude,
-        torch.tensor([0.95, 0.99, 0.995, 0.999]),
-    )
+    quantiles = _safe_quantiles(magnitude)
     return {
         'status': 'ok',
         'path': os.path.abspath(path),

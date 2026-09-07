@@ -13,7 +13,7 @@ set -euo pipefail
 
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
-GPU=${GPU:-0}
+GPU=${GPU:-7}
 SEED=${SEED:-123}
 NPROC=1
 
@@ -21,8 +21,8 @@ CODE_ROOT=${CODE_ROOT:-/mnt/SSD/wsy/projects/PaDIS-MRI-main}
 RESULT_ROOT=${RESULT_ROOT:-/mnt/SSD2/wsy/PaDIS-MRI}
 ROOT_DATA=${ROOT_DATA:-/mnt/SSD/wsy/data/fastmri_train_batch0_pilot/brain_train_d384_s200}
 
-ROOT_OUTDIR=$RESULT_ROOT/PaDIS-MRI-runs/agg_overlap_mild_training-runs
-LOG_DIR=$RESULT_ROOT/results_record/logs
+ROOT_OUTDIR=$RESULT_ROOT/PaDIS-MRI-runs/AGG/agg_training-runs
+LOG_DIR=$RESULT_ROOT/PaDIS-MRI-runs/AGG/agg_training-runs/logs
 
 ANATOMY=brain
 SNR=32dB
@@ -39,10 +39,10 @@ WORKERS=4
 PATCH_SIZES=16,32,64
 PATCH_PROBS=0.2,0.3,0.5
 
-LAMBDA_OVERLAP=0.3
+LAMBDA_OVERLAP=0
 ACTIVE_PATCH_SIZE=64
 
-AGG_SAMPLE_PROB=0.65
+AGG_SAMPLE_PROB=0.4
 AGG_THR_RATIO=0.05
 AGG_BASE=0.08
 AGG_RADIUS_SCALE=1.15
@@ -53,8 +53,8 @@ AGG_GRAD_CLIP_Q=0.95
 AGG_GATE_BASE=0.25
 
 # train_overlap.py 中 duration 的单位是 MIMG：
-# 15 MIMG = 15000 kimg。
-DURATION=15
+# 10 MIMG = 10000 kimg。
+DURATION=10
 
 # 保存逻辑：
 #   每 100 kimg 形成一个 tick；
@@ -67,7 +67,7 @@ DUMP=20
 
 PATCH_TAG=s16s32s64_p020305
 LAMBDA_TAG=${LAMBDA_OVERLAP//./p}
-EXP_NAME=agg_mild_overlap_independent_center_lam${LAMBDA_TAG}_active${ACTIVE_PATCH_SIZE}_pad${PAD_WIDTH}_bgpu${BATCH_GPU}_${PATCH_TAG}_b${BATCH_SIZE}_seed${SEED}
+EXP_NAME=agg_only_prob0p4__active${ACTIVE_PATCH_SIZE}_pad${PAD_WIDTH}_bgpu${BATCH_GPU}_${PATCH_TAG}_b${BATCH_SIZE}_seed${SEED}
 RUN_NAME=main_${EXP_NAME}
 
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
