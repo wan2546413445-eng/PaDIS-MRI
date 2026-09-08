@@ -51,6 +51,7 @@ def dps2_tta(
     pad: int = 64,
     psize: int = 64,
     tta_interval: int = 10,
+    tta_max_diffusion: Optional[int] = None,
     refinement_iters: int = 5,
     cg_iters: int = 5,
     subject_seed: int = 123,
@@ -91,8 +92,16 @@ def dps2_tta(
         alpha = 0.5 * t_cur.square()
         diffusion_index = num_steps - outer_index
 
-        # K=10 with 78 outer steps selects 70,60,...,10: exactly seven events.
-        if diffusion_index % tta_interval == 0:
+        # Optional late-only diagnostic: keep the K-interval schedule while
+        # suppressing refinement above a chosen diffusion index.
+        should_refine = (
+            diffusion_index % tta_interval == 0
+            and (
+                tta_max_diffusion is None
+                or diffusion_index <= tta_max_diffusion
+            )
+        )
+        if should_refine:
             event += 1
             refinement = adapter.refine(
                 fixed_x=x,
@@ -148,9 +157,12 @@ def dps2_tta(
             else:
                 x = x + (alpha / 2) * score
 
-    expected_events = len(
-        [index for index in range(num_steps, 0, -1) if index % tta_interval == 0]
-    )
+    expected_events = len([
+        index
+        for index in range(num_steps, 0, -1)
+        if index % tta_interval == 0
+        and (tta_max_diffusion is None or index <= tta_max_diffusion)
+    ])
     counters["tta_events"] = event
     counters["expected_tta_events"] = expected_events
     return (

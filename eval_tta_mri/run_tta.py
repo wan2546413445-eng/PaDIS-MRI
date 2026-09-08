@@ -45,6 +45,10 @@ def parse_args():
     parser.add_argument("--gpus", type=int, nargs="+", default=[0])
     parser.add_argument("--fixed_seed_per_sample", action="store_true")
     parser.add_argument("--tta-interval", dest="tta_interval", type=int, default=10)
+    parser.add_argument(
+        "--tta-max-diffusion", dest="tta_max_diffusion", type=int, default=None,
+        help="Only refine at selected K-interval diffusion indices <= this value.",
+    )
     parser.add_argument("--refinement-iters", dest="refinement_iters", type=int, default=5)
     parser.add_argument("--cg-iters", dest="cg_iters", type=int, default=5)
     parser.add_argument("--tta-lr", dest="tta_lr", type=float, default=1e-5)
@@ -66,13 +70,19 @@ def main() -> None:
 
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     event_indices = refinement_diffusion_indices(args.steps, args.tta_interval)
+    if args.tta_max_diffusion is not None:
+        event_indices = [
+            index for index in event_indices
+            if index <= args.tta_max_diffusion
+        ]
     print(
         f"[Scan-TTA] scope=full_network | optimizer=Adam | lr={args.tta_lr:g} | "
         "weight_decay=0"
     )
     print(
         f"[Scan-TTA] full_network_parameters={parameter_count:,} | "
-        f"event_diffusion_indices={event_indices}"
+        f"event_diffusion_indices={event_indices} | "
+        f"tta_max_diffusion={args.tta_max_diffusion}"
     )
     print(
         f"[Budget] baseline_denoiser_calls={args.steps * args.inner_loops} | "
@@ -100,6 +110,7 @@ def main() -> None:
         num_steps=args.steps,
         inner_loops=args.inner_loops,
         tta_interval=args.tta_interval,
+        tta_max_diffusion=args.tta_max_diffusion,
         refinement_iters=args.refinement_iters,
         cg_iters=args.cg_iters,
         fixed_seed_per_sample=args.fixed_seed_per_sample,

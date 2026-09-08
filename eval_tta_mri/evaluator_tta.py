@@ -114,6 +114,7 @@ class ScanTTAEvaluator:
         num_steps: int = 78,
         inner_loops: int = 10,
         tta_interval: int = 10,
+        tta_max_diffusion: Optional[int] = None,
         refinement_iters: int = 5,
         cg_iters: int = 5,
         fixed_seed_per_sample: bool = False,
@@ -160,6 +161,7 @@ class ScanTTAEvaluator:
                     pad=self.pad,
                     psize=self.psize,
                     tta_interval=tta_interval,
+                    tta_max_diffusion=tta_max_diffusion,
                     refinement_iters=refinement_iters,
                     cg_iters=cg_iters,
                     subject_seed=self.seed,
@@ -207,6 +209,9 @@ class ScanTTAEvaluator:
                 "weight_decay": 0.0,
                 "full_network_parameters": self.adapter.parameter_count,
                 "tta_interval": int(tta_interval),
+                "tta_max_diffusion": (
+                    None if tta_max_diffusion is None else int(tta_max_diffusion)
+                ),
                 "refinement_iters": int(refinement_iters),
                 "cg_iters": int(cg_iters),
             }, handle, indent=2)

@@ -40,10 +40,16 @@ def _to_mag_np(x):
 def _nrmse_np(gt: np.ndarray, x: np.ndarray) -> float:
     return np.linalg.norm(gt - x) / np.linalg.norm(gt)
 
-def _psnr_np(gt: np.ndarray, x: np.ndarray, data_range: float) -> float:
+def _psnr_np(gt, x, data_range):
     mse = np.mean((gt - x) ** 2)
-    return 20 * np.log10(data_range / np.sqrt(mse)) if mse > 0 else float('inf')
 
+    if not np.isfinite(mse):
+        return float('nan')
+
+    if mse == 0:
+        return float('inf')
+
+    return 20 * np.log10(data_range / np.sqrt(mse))
 def makeFigures(noisy2, 
                 denoised2, 
                 orig2, 
