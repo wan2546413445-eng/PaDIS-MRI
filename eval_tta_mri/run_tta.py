@@ -1,4 +1,4 @@
-"""CLI entry point for MCPP Stage-1 evaluation."""
+"""Command-line entry point for PaDIS-MRI projected-target Scan-TTA."""
 
 import argparse
 import os
@@ -6,17 +6,21 @@ import pickle
 import sys
 from pathlib import Path
 
-import torch
-
 THIS_DIR = Path(__file__).resolve().parent
-REFERENCE_ROOT = THIS_DIR.parent
-# 参考代码可以放在仓库内，也可以通过 PADIS_REPO_ROOT 指向实际 PaDIS-MRI 根目录。
-REPO_ROOT = Path(os.environ.get("PADIS_REPO_ROOT", str(REFERENCE_ROOT.parent))).resolve()
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "eval"))
-sys.path.insert(0, str(REPO_ROOT / "train" / "padis-mri"))
+REPO_ROOT = Path(os.environ.get("PADIS_REPO_ROOT", str(THIS_DIR.parent))).resolve()
+for import_path in (REPO_ROOT, REPO_ROOT / "eval", REPO_ROOT / "train" / "padis-mri"):
+    if str(import_path) not in sys.path:
+        sys.path.insert(0, str(import_path))
+
+import torch
 import dnnlib
-from evaluator_mcpp import MCPPEvaluator
+
+try:
+    from .evaluator_tta import ScanTTAEvaluator
+    from .scan_tta import refinement_diffusion_indices
+except ImportError:
+    from evaluator_tta import ScanTTAEvaluator
+    from scan_tta import refinement_diffusion_indices
 
 
 def _parse_indices(value: str):
@@ -24,7 +28,7 @@ def _parse_indices(value: str):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="MCPP Stage-1 MRI reconstruction")
+    parser = argparse.ArgumentParser(description="MRI projected-target Scan-TTA")
     parser.add_argument("--model_path", required=True)
     parser.add_argument("--val_dir", required=True)
     parser.add_argument("--save_dir", required=True)
@@ -40,27 +44,44 @@ def parse_args():
     parser.add_argument("--inner_loops", type=int, default=10)
     parser.add_argument("--gpus", type=int, nargs="+", default=[0])
     parser.add_argument("--fixed_seed_per_sample", action="store_true")
-    parser.add_argument("--mcpp-lr", dest="mcpp_lr", type=float, default=1e-4)
-    parser.add_argument("--save-mcpp-diagnostics", action="store_true")
+    parser.add_argument("--tta-interval", dest="tta_interval", type=int, default=10)
+    parser.add_argument("--refinement-iters", dest="refinement_iters", type=int, default=5)
+    parser.add_argument("--cg-iters", dest="cg_iters", type=int, default=5)
+    parser.add_argument("--tta-lr", dest="tta_lr", type=float, default=1e-5)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     if len(args.gpus) != 1:
-        raise ValueError("MCPP Stage-1 uses exactly one GPU because phi is subject-specific state")
+        raise ValueError("Scan-TTA requires exactly one GPU for subject-specific state")
     if not torch.cuda.is_available():
-        raise RuntimeError("The formal PaDIS MCPP evaluation requires CUDA")
+        raise RuntimeError("Formal PaDIS Scan-TTA evaluation requires CUDA")
 
     torch.cuda.set_device(args.gpus[0])
     device = torch.device(f"cuda:{args.gpus[0]}")
-
     print(f'Loading network from "{args.model_path}"...')
     with dnnlib.util.open_url(args.model_path, verbose=False) as handle:
         model = pickle.load(handle)["ema"].to(device).eval()
 
-    sample_indices = _parse_indices(args.sample_indices) or None
-    evaluator = MCPPEvaluator(
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    event_indices = refinement_diffusion_indices(args.steps, args.tta_interval)
+    print(
+        f"[Scan-TTA] scope=full_network | optimizer=Adam | lr={args.tta_lr:g} | "
+        "weight_decay=0"
+    )
+    print(
+        f"[Scan-TTA] full_network_parameters={parameter_count:,} | "
+        f"event_diffusion_indices={event_indices}"
+    )
+    print(
+        f"[Budget] baseline_denoiser_calls={args.steps * args.inner_loops} | "
+        f"tta_denoiser_calls={len(event_indices) * args.refinement_iters} | "
+        f"tta_backprops={len(event_indices) * args.refinement_iters} | "
+        f"cg_iterations={len(event_indices) * args.refinement_iters * args.cg_iters}"
+    )
+
+    evaluator = ScanTTAEvaluator(
         model=model,
         val_dir=args.val_dir,
         image_size=args.image_size,
@@ -69,29 +90,20 @@ def main() -> None:
         mask_select=args.mask_select,
         val_count=args.val_count,
         seed=args.seed,
-        sample_indices=sample_indices,
+        sample_indices=_parse_indices(args.sample_indices) or None,
+        tta_lr=args.tta_lr,
         device=device,
     )
-
-    rng_policy = "fixed_per_sample" if args.fixed_seed_per_sample else "continuous_stream"
-    print(
-        f"[MCPP Budget] steps={args.steps}, inner_loops={args.inner_loops}, "
-        f"online_updates={args.steps * args.inner_loops}, mcpp_lr={args.mcpp_lr}, "
-        f"rng={rng_policy}"
-    )
-    if sample_indices is not None:
-        print(f"[MCPP Samples] {sample_indices}")
-
     result = evaluator.evaluate(
         save_dir=args.save_dir,
         zeta=args.zeta,
         num_steps=args.steps,
         inner_loops=args.inner_loops,
-        mcpp_lr=args.mcpp_lr,
-        save_mcpp_diagnostics=args.save_mcpp_diagnostics,
+        tta_interval=args.tta_interval,
+        refinement_iters=args.refinement_iters,
+        cg_iters=args.cg_iters,
         fixed_seed_per_sample=args.fixed_seed_per_sample,
     )
-
     summary = result["metrics"].get("summary", {})
     if summary:
         print(f"PSNR:  {summary['psnr_mean']:.2f} +/- {summary['psnr_std']:.2f}")
