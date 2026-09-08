@@ -1,4 +1,4 @@
-"""Shared complex proximal CG-SENSE operator for GCC-PaDIS."""
+"""Finite-step CG-SENSE conditioning for GCC-PaDIS."""
 
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -7,12 +7,10 @@ import torch
 
 
 @dataclass(frozen=True)
-class ProximalCGInfo:
+class CGInfo:
     measurement_residual_before: float
     measurement_residual_after: float
-    prior_mse_after: float
     iterations: int
-    gamma: float
 
 
 def _single_channel(image: torch.Tensor) -> torch.Tensor:
@@ -21,9 +19,7 @@ def _single_channel(image: torch.Tensor) -> torch.Tensor:
     if image.ndim == 3:
         image = image.unsqueeze(1)
     if image.ndim != 4 or image.shape[1] != 1:
-        raise ValueError(
-            f"Expected complex image [B,1,H,W], got {tuple(image.shape)}"
-        )
+        raise ValueError(f"Expected complex image [B,1,H,W], got {tuple(image.shape)}")
     return image
 
 
@@ -32,12 +28,11 @@ def sense_forward(
     maps: torch.Tensor,
     mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Apply A(x) = M F S x with the repository's orthonormal FFT."""
+    """Apply A(x)=MFSx with orthonormal FFT."""
     image = _single_channel(image)
     coil_images = maps * image
-    return mask * torch.fft.fft2(
-        coil_images, dim=(-2, -1), norm="ortho"
-    )
+    coil_kspace = torch.fft.fft2(coil_images, dim=(-2, -1), norm="ortho")
+    return mask * coil_kspace
 
 
 def sense_adjoint(
@@ -45,13 +40,11 @@ def sense_adjoint(
     maps: torch.Tensor,
     mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Apply A^H(y) = sum_c conj(S_c) F^H(M y_c)."""
+    """Apply A^H(y)=sum_c conj(S_c) F^H(M y_c)."""
     coil_images = torch.fft.ifft2(
         mask * kspace, dim=(-2, -1), norm="ortho"
     )
-    return torch.sum(
-        torch.conj(maps) * coil_images, dim=1, keepdim=True
-    )
+    return torch.sum(torch.conj(maps) * coil_images, dim=1, keepdim=True)
 
 
 def measurement_residual_sse(
@@ -70,59 +63,49 @@ def acquired_measurement_mse(
     maps: torch.Tensor,
     mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Mean squared residual over actual acquired coil samples only."""
+    """Complex MSE over actual acquired coil samples only."""
     residual = sense_forward(image, maps, mask) - mask * measurement
-    acquired = (mask != 0).expand_as(residual)
-    acquired_count = torch.count_nonzero(acquired)
-    if int(acquired_count.item()) == 0:
-        raise ValueError("The loss mask contains no acquired samples")
+    acquired_count = torch.count_nonzero(mask) * residual.shape[1]
     return torch.sum(torch.abs(residual).square()) / acquired_count
 
 
-def _proximal_cg_impl(
+def _cg_data_consistency_impl(
     prior: torch.Tensor,
     measurement: torch.Tensor,
     maps: torch.Tensor,
     mask: torch.Tensor,
     iterations: int,
-    gamma: float,
     return_info: bool,
-) -> Tuple[torch.Tensor, Optional[ProximalCGInfo]]:
+) -> Tuple[torch.Tensor, Optional[CGInfo]]:
+    """Finite CG for A^H A z = A^H y, initialized at the diffusion prior."""
     prior = _single_channel(prior)
-    gamma_t = prior.real.new_tensor(float(gamma))
 
     def normal(image: torch.Tensor) -> torch.Tensor:
-        return sense_adjoint(
-            sense_forward(image, maps, mask), maps, mask
-        )
+        return sense_adjoint(sense_forward(image, maps, mask), maps, mask)
 
-    def system(image: torch.Tensor) -> torch.Tensor:
-        return image + gamma_t * normal(image)
+    rhs = sense_adjoint(measurement, maps, mask)
 
-    rhs = prior + gamma_t * sense_adjoint(measurement, maps, mask)
+    # Starting from D is essential: finite CG corrects measurement-observable
+    # directions while carrying the patch prior through unresolved directions.
     solution = prior
-    residual = rhs - system(solution)
+    residual = rhs - normal(solution)
     direction = residual
-    residual_norm = torch.real(
-        torch.sum(torch.conj(residual) * residual)
-    )
+    residual_norm = torch.real(torch.sum(torch.conj(residual) * residual))
     eps = torch.finfo(prior.real.dtype).eps
 
-    residual_before = None
+    before = None
     if return_info:
-        residual_before = measurement_residual_sse(
-            prior, measurement, maps, mask
-        )
+        before = measurement_residual_sse(prior, measurement, maps, mask)
 
     for _ in range(iterations):
-        system_direction = system(direction)
+        normal_direction = normal(direction)
         denominator = torch.real(
-            torch.sum(torch.conj(direction) * system_direction)
+            torch.sum(torch.conj(direction) * normal_direction)
         )
         step = residual_norm / (denominator + eps)
         solution = solution + step * direction
 
-        next_residual = residual - step * system_direction
+        next_residual = residual - step * normal_direction
         next_norm = torch.real(
             torch.sum(torch.conj(next_residual) * next_residual)
         )
@@ -133,69 +116,57 @@ def _proximal_cg_impl(
 
     info = None
     if return_info:
-        residual_after = measurement_residual_sse(
+        after = measurement_residual_sse(
             solution, measurement, maps, mask
         )
-        prior_mse = torch.mean(torch.abs(solution - prior).square())
-        info = ProximalCGInfo(
-            measurement_residual_before=float(
-                residual_before.detach().item()
-            ),
-            measurement_residual_after=float(
-                residual_after.detach().item()
-            ),
-            prior_mse_after=float(prior_mse.detach().item()),
+        info = CGInfo(
+            measurement_residual_before=float(before.detach().item()),
+            measurement_residual_after=float(after.detach().item()),
             iterations=int(iterations),
-            gamma=float(gamma),
         )
     return solution, info
 
 
-def proximal_cg(
+def cg_data_consistency(
     prior: torch.Tensor,
     measurement: torch.Tensor,
     maps: torch.Tensor,
     mask: torch.Tensor,
     iterations: int = 5,
     *,
-    gamma: float = 1.0,
     differentiable: bool = False,
     return_info: bool = False,
-) -> Tuple[torch.Tensor, Optional[ProximalCGInfo]]:
-    r"""Solve (I + gamma A^H A)z = D + gamma A^H y.
+) -> Tuple[torch.Tensor, Optional[CGInfo]]:
+    """Strong full-image data conditioning from a patch-diffusion initialization.
 
-    The same finite CG implementation is used in both branches. The TTA path
-    sets ``differentiable=True`` so the held-out loss reaches ``prior`` and the
-    network. Formal reconstruction runs it without a graph.
+    Solves the normal equations A^H A z = A^H y with z0=prior.
+    TTA uses the differentiable finite unroll; formal reconstruction runs
+    without an autograd graph.
     """
     if iterations < 1:
         raise ValueError("iterations must be positive")
-    if gamma <= 0:
-        raise ValueError("gamma must be positive")
 
     measurement_const = measurement.detach()
     maps_const = maps.detach()
     mask_const = mask.detach()
 
     if differentiable:
-        return _proximal_cg_impl(
+        return _cg_data_consistency_impl(
             prior,
             measurement_const,
             maps_const,
             mask_const,
             iterations,
-            gamma,
             return_info,
         )
 
     with torch.no_grad():
-        solution, info = _proximal_cg_impl(
+        solution, info = _cg_data_consistency_impl(
             prior.detach(),
             measurement_const,
             maps_const,
             mask_const,
             iterations,
-            gamma,
             return_info,
         )
     return solution.detach(), info

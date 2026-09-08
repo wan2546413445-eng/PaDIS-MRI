@@ -34,7 +34,9 @@ def _parse_indices(value: str):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Global Cross-Conditioned PaDIS")
+    parser = argparse.ArgumentParser(
+        description="Global Cross-Conditioned PaDIS with strong CG data conditioning"
+    )
     parser.add_argument("--model_path", required=True)
     parser.add_argument("--val_dir", required=True)
     parser.add_argument("--save_dir", required=True)
@@ -51,7 +53,6 @@ def parse_args():
     parser.add_argument("--fixed_seed_per_sample", action="store_true")
     parser.add_argument("--refinement-iters", type=int, default=5)
     parser.add_argument("--cg-iters", type=int, default=5)
-    parser.add_argument("--gamma", type=float, default=1.0)
     parser.add_argument("--tta-lr", type=float, default=1e-5)
     return parser.parse_args()
 
@@ -74,16 +75,15 @@ def main() -> None:
         or args.inner_loops != 10
         or args.refinement_iters != 5
         or args.cg_iters != 5
-        or args.gamma != 1.0
         or args.tta_lr != 1e-5
     ):
         raise ValueError(
-            "Formal method is fixed to 78x10, TTA 5/event, CG 5, "
-            "gamma 1, lr 1e-5"
+            "Formal method is fixed to 78x10, TTA 5/event, CG 5, lr 1e-5"
         )
 
     torch.cuda.set_device(args.gpus[0])
     device = torch.device(f"cuda:{args.gpus[0]}")
+
     print(f'Loading network from "{args.model_path}"...')
     with dnnlib.util.open_url(args.model_path, verbose=False) as handle:
         model = pickle.load(handle)["ema"].to(device).eval()
@@ -96,14 +96,17 @@ def main() -> None:
         cg_iters=args.cg_iters,
     )
     print(
-        "[GCC-PaDIS] holdout TTA -> patch prior -> full proximal CG "
+        "[GCC-PaDIS] holdout TTA -> patch prior -> hard full CG "
         "-> conditional score"
     )
     print(
         f"[GCC-PaDIS] events={list(GCC_TTA_EVENTS)} "
         f"| refinement/event={args.refinement_iters} "
-        f"| lr={args.tta_lr:g} | gamma={args.gamma:g} "
-        f"| cg_iters={args.cg_iters}"
+        f"| lr={args.tta_lr:g} | cg_iters={args.cg_iters}"
+    )
+    print(
+        "[GCC-PaDIS] conditioning=A^H A z=A^H y, "
+        "initialized from patch diffusion estimate"
     )
     print(
         f"[Budget] denoisers={budget['denoiser_calls']} "
@@ -123,7 +126,6 @@ def main() -> None:
         seed=args.seed,
         sample_indices=_parse_indices(args.sample_indices) or None,
         tta_lr=args.tta_lr,
-        gamma=args.gamma,
         device=device,
     )
     result = evaluator.evaluate(
@@ -132,7 +134,6 @@ def main() -> None:
         inner_loops=args.inner_loops,
         refinement_iters=args.refinement_iters,
         cg_iters=args.cg_iters,
-        gamma=args.gamma,
         fixed_seed_per_sample=args.fixed_seed_per_sample,
     )
 

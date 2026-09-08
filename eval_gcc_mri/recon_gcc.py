@@ -7,10 +7,10 @@ import torch
 import tqdm
 
 try:
-    from .cg_sense import proximal_cg
+    from .cg_sense import cg_data_consistency
     from .gcc_adapter import GCCScanAdapter
 except ImportError:
-    from cg_sense import proximal_cg
+    from cg_sense import cg_data_consistency
     from gcc_adapter import GCCScanAdapter
 
 
@@ -66,12 +66,7 @@ def conditional_score_from_clean(
     sigma: torch.Tensor,
     pad: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Embed the conditional clean crop and use it as the score target."""
-    if conditional_crop.ndim != 4 or conditional_crop.shape[1] != 1:
-        raise ValueError("conditional_crop must have shape [B,1,H,W]")
-    if unconditional_padded.shape != x_noisy.shape:
-        raise ValueError("unconditional_padded and x_noisy shapes must match")
-
+    """Embed the globally conditioned clean crop as the diffusion score target."""
     height, width = conditional_crop.shape[-2:]
     conditional_padded = unconditional_padded.clone()
     conditional_padded[
@@ -100,27 +95,23 @@ def reconstruct_gcc(
     tta_events: Sequence[int] = GCC_TTA_EVENTS,
     refinement_iters: int = 5,
     cg_iters: int = 5,
-    gamma: float = 1.0,
     subject_seed: int = 123,
     randn_like=torch.randn_like,
     device: str = "cuda",
 ) -> Tuple[torch.Tensor, List[Dict], Dict[str, int]]:
-    """Run holdout TTA and full-measurement conditional diffusion jointly."""
+    """Run cross-mask TTA and hard full-measurement conditioned diffusion."""
     if num_steps < 2 or inner_loops < 1:
         raise ValueError("num_steps >= 2 and inner_loops >= 1 are required")
     if pad != 64 or psize != 64 or latents.shape[-1] != 384:
         raise ValueError("Formal GCC-PaDIS requires image=384, pad=64, patch=64")
     if tuple(tta_events) != GCC_TTA_EVENTS:
         raise ValueError("Formal GCC-PaDIS TTA events are [40,30,20,10]")
-    if float(gamma) != adapter.gamma:
-        raise ValueError("TTA and formal reconstruction must share gamma")
 
-    # Imported lazily so CPU-only operator smoke tests do not require the full
-    # baseline evaluation dependency stack.
     from denoise_padding import denoisedFromPatches, getIndices
 
     net.eval()
     adapter.freeze()
+
     image_size = int(latents.shape[-1])
     patches = image_size // psize + 1
     spaced = np.linspace(
@@ -153,7 +144,8 @@ def reconstruct_gcc(
     event_number = 0
 
     for outer_index, (sigma, _next_sigma) in tqdm.tqdm(
-        enumerate(zip(t_steps[:-1], t_steps[1:])), total=num_steps
+        enumerate(zip(t_steps[:-1], t_steps[1:])),
+        total=num_steps,
     ):
         sigma = sigma.float()
         alpha = 0.5 * sigma.square()
@@ -186,8 +178,6 @@ def reconstruct_gcc(
             counters["total_cg_iterations"] += adaptation.cg_iterations
 
         for _inner_index in range(inner_loops):
-            # These three draws deliberately remain on the baseline streams:
-            # patch offset, noisy-state noise, and diffusion noise.
             indices = getIndices(spaced, patches, pad, psize)
             x = x.detach()
             x_noisy = x + sigma * randn_like(x)
@@ -206,6 +196,7 @@ def reconstruct_gcc(
                     t_goal=0,
                     wrong=False,
                 )
+
                 unconditional_padded = torch.complex(
                     denoised_real[:, 0], denoised_real[:, 1]
                 ).unsqueeze(1)
@@ -216,23 +207,23 @@ def reconstruct_gcc(
                     pad:pad + image_size,
                 ]
 
-                conditional_crop, _ = proximal_cg(
+                # Strong global conditioning: solve A^H A z = A^H y
+                # from the patch-prior initialization on every inner step.
+                conditional_crop, _ = cg_data_consistency(
                     unconditional_crop,
                     measurement,
                     inverseop.maps,
                     inverseop.mask,
                     iterations=cg_iters,
-                    gamma=gamma,
                     differentiable=False,
                 )
-                score_cond, _conditional_padded = (
-                    conditional_score_from_clean(
-                        conditional_crop,
-                        unconditional_padded,
-                        x_noisy,
-                        sigma,
-                        pad,
-                    )
+
+                score_cond, _ = conditional_score_from_clean(
+                    conditional_crop,
+                    unconditional_padded,
+                    x_noisy,
+                    sigma,
+                    pad,
                 )
 
                 if outer_index < num_steps - 1:

@@ -6,7 +6,6 @@ from typing import Dict, List, Sequence
 
 import torch
 
-from eval_tta_mri_holdout.cg_sense import heldout_kspace_loss
 from eval_tta_mri_holdout.scan_tta_holdout import (
     denoised_from_patches_holdout,
     get_local_patch_indices,
@@ -14,13 +13,13 @@ from eval_tta_mri_holdout.scan_tta_holdout import (
 )
 
 try:
-    from .cg_sense import proximal_cg
+    from .cg_sense import acquired_measurement_mse, cg_data_consistency
     from .kspace_split import (
         deterministic_refinement_seed,
         split_mask7_columns,
     )
 except ImportError:
-    from cg_sense import proximal_cg
+    from cg_sense import acquired_measurement_mse, cg_data_consistency
     from kspace_split import (
         deterministic_refinement_seed,
         split_mask7_columns,
@@ -43,13 +42,11 @@ class GCCScanAdapter:
         self,
         net: torch.nn.Module,
         lr: float = 1e-5,
-        gamma: float = 1.0,
     ) -> None:
-        if lr <= 0 or gamma <= 0:
-            raise ValueError("lr and gamma must be positive")
+        if lr <= 0:
+            raise ValueError("lr must be positive")
         self.net = net
         self.lr = float(lr)
-        self.gamma = float(gamma)
         self.theta0 = {
             name: value.detach().cpu().clone()
             for name, value in net.state_dict().items()
@@ -103,7 +100,7 @@ class GCCScanAdapter:
         event: int,
         subject_seed: int,
     ) -> AdaptationResult:
-        """Run holdout refinements through the shared differentiable CG."""
+        """Cross-mask TTA with hard conditional CG on Omega_cond."""
         if refinement_iters < 1 or cg_iters < 1:
             raise ValueError("refinement_iters and cg_iters must be positive")
 
@@ -117,6 +114,7 @@ class GCCScanAdapter:
         try:
             for refinement in range(1, refinement_iters + 1):
                 optimizer.zero_grad(set_to_none=True)
+
                 noise_seed = deterministic_refinement_seed(
                     subject_seed, event, refinement, stream=0
                 )
@@ -127,11 +125,14 @@ class GCCScanAdapter:
                     subject_seed, event, refinement, stream=2
                 )
 
-                noise = local_complex_randn_like(x_fixed, seed=noise_seed)
+                noise = local_complex_randn_like(
+                    x_fixed, seed=noise_seed
+                )
                 x_tta_noisy = x_fixed + sigma * noise
                 x_real = torch.view_as_real(
                     x_tta_noisy.squeeze(1)
                 ).permute(0, 3, 1, 2)
+
                 indices = get_local_patch_indices(
                     spaced,
                     patches,
@@ -149,18 +150,21 @@ class GCCScanAdapter:
                     denoised_crop[:, 0], denoised_crop[:, 1]
                 ).unsqueeze(1)
 
-                split = split_mask7_columns(full_mask, seed=split_seed)
+                split = split_mask7_columns(
+                    full_mask, seed=split_seed
+                )
                 measurement_cond = split.mask_cond * measurement
-                conditional, _ = proximal_cg(
+
+                conditional, _ = cg_data_consistency(
                     prediction,
                     measurement_cond,
                     maps,
                     split.mask_cond,
                     iterations=cg_iters,
-                    gamma=self.gamma,
                     differentiable=True,
                 )
-                holdout_loss = heldout_kspace_loss(
+
+                holdout_loss = acquired_measurement_mse(
                     conditional,
                     measurement,
                     maps.detach(),

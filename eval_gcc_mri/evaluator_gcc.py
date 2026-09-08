@@ -34,7 +34,6 @@ class GCCEvaluator:
         seed: int = 123,
         sample_indices: Optional[Iterable[int]] = None,
         tta_lr: float = 1e-5,
-        gamma: float = 1.0,
         device: Optional[torch.device] = None,
     ) -> None:
         if image_size != 384 or pad != 64 or psize != 64 or mask_select != 7:
@@ -53,8 +52,6 @@ class GCCEvaluator:
         self.mask_select = int(mask_select)
         self.seed = int(seed)
 
-        if not self.val_dir.is_dir():
-            raise FileNotFoundError(f"val_dir not found: {self.val_dir}")
         available = sorted(
             int(path.stem.split("_")[-1])
             for path in self.val_dir.glob("sample_*.pt")
@@ -82,7 +79,7 @@ class GCCEvaluator:
         self._reset_sample_latent()
 
         self.adapter = GCCScanAdapter(
-            self.model, lr=tta_lr, gamma=gamma
+            self.model, lr=tta_lr
         )
 
     def _reset_rng(self) -> None:
@@ -127,7 +124,6 @@ class GCCEvaluator:
         inner_loops: int = 10,
         refinement_iters: int = 5,
         cg_iters: int = 5,
-        gamma: float = 1.0,
         fixed_seed_per_sample: bool = False,
     ) -> Dict:
         root = Path(save_dir)
@@ -172,7 +168,6 @@ class GCCEvaluator:
                     tta_events=GCC_TTA_EVENTS,
                     refinement_iters=refinement_iters,
                     cg_iters=cg_iters,
-                    gamma=gamma,
                     subject_seed=self.seed,
                     device=str(self.device),
                 )
@@ -214,7 +209,7 @@ class GCCEvaluator:
         self._write_rows(root / "sample_runtime.csv", runtime_rows)
         with (root / "gcc_config.json").open("w") as handle:
             json.dump({
-                "method": "GCC-PaDIS",
+                "method": "GCC-PaDIS-hardDC",
                 "tta_objective": "kspace_holdout_cross_mask",
                 "tta_scope": "full_network",
                 "optimizer": "Adam",
@@ -225,8 +220,9 @@ class GCCEvaluator:
                 "holdout_columns": 11,
                 "acquired_columns": 54,
                 "acs_columns": 24,
-                "conditional_estimator": "proximal_cg",
-                "gamma": float(gamma),
+                "tta_conditioning": "finite_cg_data_consistency_on_cond_mask",
+                "formal_conditioning": "finite_cg_data_consistency_on_full_mask",
+                "cg_init": "patch_diffusion_clean_estimate",
                 "cg_iters": int(cg_iters),
                 "num_steps": int(num_steps),
                 "inner_loops": int(inner_loops),
