@@ -36,29 +36,39 @@ def get_indices(spaced, patches, pad, psize, freezeindex=False):
     return indices
 
 
-def denoised_from_patches_320(net, x, t_hat, latents_pos, class_labels, indices):
-    """Build a 448x448 denoiser output for a central 320 target.
+def denoised_from_patches_320(
+    net,
+    x_noisy_real,
+    x_state_real,
+    t_hat,
+    latents_pos,
+    class_labels,
+    indices,
+):
+    """Build a 448x448 x0 estimate for a central 320 target.
 
     Regions:
-      - [0:32] and [416:448] outer padding: zero.
-      - original 384 measurement FOV [32:416]: identity by default.
-      - central 320 target [64:384]: PaDIS denoised output.
+      - outer [0:32] / [416:448]: zero, as PaDIS padding;
+      - original 384 measurement FOV [32:416]: current posterior state;
+      - central target [64:384]: PaDIS denoised output.
 
-    The identity context keeps the original 384 MRI likelihood well-defined
-    and differentiable, while the learned PaDIS prior is applied only to the
-    central 320 target.
+    The 32-pixel real context therefore participates in the unchanged 384 MRI
+    likelihood without being assigned a learned patch prior.  Using the current
+    state (rather than the injected noisy state) also avoids polluting the 384
+    x0 estimate and LGFC reference with artificial VE noise.
     """
-    if x.ndim != 4 or x.shape[-2:] != (CANVAS_SIZE, CANVAS_SIZE):
-        raise ValueError(
-            f"x must end in {CANVAS_SIZE}x{CANVAS_SIZE}, got {tuple(x.shape)}"
-        )
+    for name, value in (("x_noisy_real", x_noisy_real), ("x_state_real", x_state_real)):
+        if value.ndim != 4 or value.shape[-2:] != (CANVAS_SIZE, CANVAS_SIZE):
+            raise ValueError(
+                f"{name} must end in {CANVAS_SIZE}x{CANVAS_SIZE}, got {tuple(value.shape)}"
+            )
     if latents_pos.shape[-2:] != (CANVAS_SIZE, CANVAS_SIZE):
         raise ValueError(
             f"latents_pos must end in {CANVAS_SIZE}x{CANVAS_SIZE}, "
             f"got {tuple(latents_pos.shape)}"
         )
 
-    x_hat = torch.clone(x)
+    x_hat = torch.clone(x_noisy_real)
     channels = x_hat.shape[1]
     psize = indices[0][1] - indices[0][0]
     num_patches = len(indices)
@@ -108,7 +118,7 @@ def denoised_from_patches_320(net, x, t_hat, latents_pos, class_labels, indices)
 
     output = torch.zeros_like(x_hat)
     output[:, :, MEAS_START:MEAS_END, MEAS_START:MEAS_END] = (
-        x[:, :, MEAS_START:MEAS_END, MEAS_START:MEAS_END]
+        x_state_real[:, :, MEAS_START:MEAS_END, MEAS_START:MEAS_END]
     )
     output[:, :, TARGET_START:TARGET_END, TARGET_START:TARGET_END] = (
         denoised[:, :, TARGET_START:TARGET_END, TARGET_START:TARGET_END]
