@@ -21,7 +21,7 @@ export MPLBACKEND=Agg
 export PYTHONPATH="${REPO_ROOT}/train/padis-mri:${REPO_ROOT}/eval:${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Physical GPU. CUDA_VISIBLE_DEVICES exposes it internally as logical cuda:0.
-GPU="${GPU:-3}"
+GPU="${GPU:-4}"
 LOGICAL_GPU=0
 export CUDA_VISIBLE_DEVICES="${GPU}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

@@ -20,7 +20,7 @@ MODE=${MODE:-smoke}
 GPU=${GPU:-0}
 SEED=${SEED:-123}
 CODE_ROOT=${CODE_ROOT:-/mnt/SSD/wsy/projects/PaDIS-MRI-main}
-RESULT_ROOT=${RESULT_ROOT:-/mnt/SSD2/wsy/PaDIS-MRI}
+RESULT_ROOT=/mnt/SSD2/wsy/PaDIS-MRI
 ROOT_DATA=${ROOT_DATA:-/mnt/SSD/wsy/data/fastmri_train_batch0_pilot/brain_train_d384_s200}
 
 ANATOMY=${ANATOMY:-brain}
@@ -55,7 +55,7 @@ else
     RUN_NAME=agg_single_rho${RHO_TAG}_gamma${GAMMA_TAG}_pad${PAD_WIDTH}_seed${SEED}_${MODE}
 fi
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
-DATA_PATH=$ROOT_DATA/$SNR
+DATA_PATH=${DATA_PATH:-$ROOT_DATA/$SNR}
 AUDIT_DIR=$RESULT_ROOT/results_record/agg_sampler_audit/$RUN_NAME
 
 mkdir -p "$ROOT_OUTDIR" "$LOG_DIR"
