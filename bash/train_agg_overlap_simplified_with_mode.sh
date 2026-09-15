@@ -6,7 +6,7 @@ set -euo pipefail
 
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
-GPU=${GPU:-0}
+GPU=${GPU:-2}
 SEED=${SEED:-123}
 CODE_ROOT=${CODE_ROOT:-/mnt/SSD/wsy/projects/PaDIS-MRI-main}
 RESULT_ROOT=${RESULT_ROOT:-/mnt/SSD2/wsy/PaDIS-MRI}
@@ -64,7 +64,7 @@ export WANDB_NAME="$RUN_NAME"
 CUDA_VISIBLE_DEVICES="$GPU" torchrun \
     --standalone \
     --nproc_per_node=1 \
-    train/padis-mri/train_overlap_agg_v2_mode.py \
+    train/padis-mri/train_overlap_agg_v2_with_mode.py \
     --outdir="$OUTDIR" \
     --data="$DATA_DIR" \
     --cond=0 \
