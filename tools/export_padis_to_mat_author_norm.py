@@ -11,11 +11,11 @@ USE_BUILTIN_CONFIG = True
 
 
 BUILTIN_CONFIG = {
-    "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/agg_overlap_simply_ckpt010006_78x10_serial/new3t_t2_agg_lgfc/sample_36/evaluate/recons",
-    "val_dir": r"/mnt/SSD2/wsy/brain_multicoil/fastmri_3T_eval/val_t2/32dB",
-    "out_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/new_T2/R7/AGG-OC/AGG_OC_FULL_T2_train123_val123_sample36_s78",
+    "recon_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/new_data/agg_overlap_simply_ckpt010006_78x10_serial/new3t_t1flair_agg_only/sample_26/evaluate/recons",
+    "val_dir": r"/mnt/SSD2/wsy/brain_multicoil/fastmri_3T_eval/val_t1-flair_subsamp/32dB",
+    "out_dir": r"/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-matlab/author_norm/new-t1-flair/R7/AGG-OC/AGG-OC_T1FLAIR_train123_val123_sample26_s78",
     "idx": all,
-    "mask_select": 7,
+    "mask_select": 4,
     "save_kspace_maps": False,
 }
 def fftmod_np(x: np.ndarray) -> np.ndarray:

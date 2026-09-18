@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import tqdm
 
+
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _EVAL_DIR = os.path.join(_REPO_ROOT, "eval")
 for _path in (_REPO_ROOT, _EVAL_DIR):
@@ -34,15 +35,29 @@ from eval_lgfc_320.denoise_padding_320 import (
 
 
 def _ve_base_schedule(net, num_sigmas, sigma_min, sigma_max, rho, device):
-    idx = torch.arange(num_sigmas, dtype=torch.float64, device=device)
+    idx = torch.arange(
+        num_sigmas,
+        dtype=torch.float64,
+        device=device,
+    )
     t = (
         sigma_max ** (1.0 / rho)
         + (idx / (num_sigmas - 1.0))
-        * (sigma_min ** (1.0 / rho) - sigma_max ** (1.0 / rho))
+        * (
+            sigma_min ** (1.0 / rho)
+            - sigma_max ** (1.0 / rho)
+        )
     ) ** rho
     t = net.round_sigma(t)
     return torch.cat(
-        [t, torch.zeros(1, dtype=torch.float64, device=device)],
+        [
+            t,
+            torch.zeros(
+                1,
+                dtype=torch.float64,
+                device=device,
+            ),
+        ],
         dim=0,
     )
 
@@ -51,7 +66,11 @@ def _should_correct(outer_step: int, config: LGFCConfig) -> bool:
     return (
         config.enabled
         and outer_step >= config.start_outer
-        and (outer_step - config.start_outer) % config.correction_every == 0
+        and (
+            (outer_step - config.start_outer)
+            % config.correction_every
+            == 0
+        )
     )
 
 
@@ -62,7 +81,10 @@ def _complex_to_2ch(x: torch.Tensor) -> torch.Tensor:
 
 
 def _real2_to_complex(x: torch.Tensor) -> torch.Tensor:
-    return torch.complex(x[:, 0], x[:, 1]).unsqueeze(1)
+    return torch.complex(
+        x[:, 0],
+        x[:, 1],
+    ).unsqueeze(1)
 
 
 def dps2_lgfc_320(
@@ -88,28 +110,45 @@ def dps2_lgfc_320(
     lgfc_config: Optional[LGFCConfig] = None,
     device: str = "cuda",
 ):
-    """320 ROI, but original 384 measurement model is untouched."""
+    """320 ROI prior with the original 384 MRI measurement model untouched."""
     del save_intermediate, intermediate_every
 
     if measurement is None:
-        raise ValueError("320-ROI mode requires original 384 MRI measurement")
+        raise ValueError(
+            "320-ROI mode requires original 384 MRI measurement"
+        )
     if pad != 64 or psize != 64:
-        raise ValueError("320-ROI mode fixes pad=64 and psize=64")
+        raise ValueError(
+            "320-ROI mode fixes pad=64 and psize=64"
+        )
     if num_steps != 78 or inner_loops != 10:
-        raise ValueError("320-ROI pilot fixes 78 outer steps and 10 inner loops")
+        raise ValueError(
+            "320-ROI pilot fixes 78 outer steps and 10 inner loops"
+        )
     if zeta != 3.0:
-        raise ValueError("320-ROI pilot fixes zeta=3.0")
+        raise ValueError(
+            "320-ROI pilot fixes zeta=3.0"
+        )
     if latents.shape[-2:] != (TARGET_SIZE, TARGET_SIZE):
-        raise ValueError(f"latents must be {TARGET_SIZE}x{TARGET_SIZE}")
+        raise ValueError(
+            f"latents must be {TARGET_SIZE}x{TARGET_SIZE}"
+        )
     if latents_pos.shape[-2:] != (CANVAS_SIZE, CANVAS_SIZE):
-        raise ValueError(f"latents_pos must be {CANVAS_SIZE}x{CANVAS_SIZE}")
+        raise ValueError(
+            f"latents_pos must be {CANVAS_SIZE}x{CANVAS_SIZE}"
+        )
 
-    config = validate_lgfc_config(lgfc_config or LGFCConfig(enabled=False))
+    config = validate_lgfc_config(
+        lgfc_config or LGFCConfig(enabled=False)
+    )
     net.eval()
 
     patches = TARGET_SIZE // psize + 1
     if patches != 6:
-        raise RuntimeError("320 target with psize64 must produce a 6x6 patch grid")
+        raise RuntimeError(
+            "320 target with psize64 must produce a 6x6 patch grid"
+        )
+
     spaced = np.linspace(
         0,
         (patches - 1) * psize,
@@ -117,23 +156,30 @@ def dps2_lgfc_320(
         dtype=int,
     )
 
-    # ORIGINAL 384 MRI adjoint initialization.
+    # Original 384 MRI adjoint initialization.
     x_init = inverseop.adjoint(measurement).detach()
+
     if (
         x_init.ndim != 4
         or x_init.shape[1] != 1
         or not torch.is_complex(x_init)
     ):
         raise ValueError(
-            "inverseop.adjoint(measurement) must return complex [B,1,384,384]"
+            "inverseop.adjoint(measurement) must return "
+            "complex [B,1,384,384]"
         )
-    if x_init.shape[-2:] != (MEASUREMENT_SIZE, MEASUREMENT_SIZE):
+
+    if x_init.shape[-2:] != (
+        MEASUREMENT_SIZE,
+        MEASUREMENT_SIZE,
+    ):
         raise ValueError(
-            f"measurement adjoint must be {MEASUREMENT_SIZE}x{MEASUREMENT_SIZE}, "
+            f"measurement adjoint must be "
+            f"{MEASUREMENT_SIZE}x{MEASUREMENT_SIZE}, "
             f"got {tuple(x_init.shape[-2:])}"
         )
 
-    # 384 real MRI FOV + only 32 zero pixels/side = 448 canvas.
+    # 384 real MRI FOV + 32 zero pixels per side = 448 canvas.
     x = torch.nn.functional.pad(
         x_init,
         (32, 32, 32, 32),
@@ -156,6 +202,7 @@ def dps2_lgfc_320(
         desc="LGFC-320",
     ):
         del t_next
+
         outer_step = i + 1
         reference = None
         t_cur = t_cur.float()
@@ -175,7 +222,13 @@ def dps2_lgfc_320(
             x_real_noisy = _complex_to_2ch(x_noisy)
             x_real_state = _complex_to_2ch(x)
 
-            d_real = denoised_from_patches_320(
+            # IMPORTANT:
+            # MRI x0 and score-denoiser output are intentionally different
+            # outside the central 320 target.
+            (
+                x0_dc_real,
+                d_score_real,
+            ) = denoised_from_patches_320(
                 net=net,
                 x_noisy_real=x_real_noisy,
                 x_state_real=x_real_state,
@@ -184,10 +237,16 @@ def dps2_lgfc_320(
                 class_labels=None,
                 indices=indices,
             )
-            d_cplx = _real2_to_complex(d_real)
 
-            # ORIGINAL complete 384 x0 estimate.
-            d_measurement = d_cplx[
+            x0_dc_cplx = _real2_to_complex(x0_dc_real)
+            d_score_cplx = _real2_to_complex(d_score_real)
+
+            # --------------------------------------------------------
+            # LGFC reference:
+            # use the complete original 384 x0 estimate.
+            # Context ring uses current x; target uses learned x0.
+            # --------------------------------------------------------
+            x0_measurement = x0_dc_cplx[
                 :,
                 :,
                 MEAS_START:MEAS_END,
@@ -196,25 +255,52 @@ def dps2_lgfc_320(
 
             reference = update_reference(
                 reference,
-                d_measurement.detach(),
+                x0_measurement.detach(),
                 mode=config.reference_mode,
                 ema_beta=config.ema_beta,
             )
 
-            # 448 score; learned denoiser only exists on central 320.
-            score = (d_cplx - x_noisy) / (t_cur ** 2)
+            # --------------------------------------------------------
+            # Diffusion score:
+            #
+            # central 320 target:
+            #   (D_theta - x_noisy) / sigma^2
+            #
+            # real 32px context ring:
+            #   (x_noisy - x_noisy) / sigma^2 = 0
+            #
+            # outer 32px zero padding:
+            #   retains original zero-padding behavior.
+            # --------------------------------------------------------
+            score = (
+                d_score_cplx - x_noisy
+            ) / (t_cur ** 2)
 
-            # ORIGINAL 384 MRI likelihood: same measurement/mask/maps/operator.
-            x0hat_384 = d_real[
+            # --------------------------------------------------------
+            # Original 384 MRI likelihood is unchanged.
+            # k-space / mask / sensitivity maps / measurement are all
+            # the original 384 quantities.
+            # --------------------------------------------------------
+            x0hat_384 = x0_dc_real[
                 :,
                 :,
                 MEAS_START:MEAS_END,
                 MEAS_START:MEAS_END,
             ]
+
             ax = inverseop.forward(x0hat_384)
             residual = measurement - ax
-            residual_flat = residual.reshape(x.shape[0], -1)
-            sse_ind = torch.norm(residual_flat, dim=-1) ** 2
+            residual_flat = residual.reshape(
+                x.shape[0],
+                -1,
+            )
+            sse_ind = (
+                torch.norm(
+                    residual_flat,
+                    dim=-1,
+                )
+                ** 2
+            )
             sse = torch.sum(sse_ind)
 
             likelihood_grad = torch.autograd.grad(
@@ -223,22 +309,63 @@ def dps2_lgfc_320(
             )[0]
 
             x = x - (
-                zeta / torch.sqrt(sse_ind)[:, None, None, None]
+                zeta
+                / torch.sqrt(
+                    sse_ind
+                )[:, None, None, None]
             ) * likelihood_grad
 
+            # --------------------------------------------------------
+            # Diffusion/Langevin update is NOT applied to the real
+            # 32-pixel MRI context ring.
+            #
+            # Regions in the 448 canvas:
+            #   outer zero padding : keep original PaDIS diffusion behavior
+            #   real context ring  : measurement/LGFC only
+            #   central 320 target : normal PaDIS diffusion behavior
+            #
+            # This is essential: score=0 alone is insufficient, because an
+            # unmasked sqrt(alpha)*noise term would otherwise make the real
+            # context execute a random walk across 780 posterior updates.
+            # --------------------------------------------------------
+            diffusion_mask = torch.ones_like(x.real)
+
+            # First disable diffusion over the complete original 384 MRI FOV.
+            diffusion_mask[
+                :,
+                :,
+                MEAS_START:MEAS_END,
+                MEAS_START:MEAS_END,
+            ] = 0
+
+            # Re-enable diffusion only on the central 320 target.
+            diffusion_mask[
+                :,
+                :,
+                TARGET_START:TARGET_END,
+                TARGET_START:TARGET_END,
+            ] = 1
+
             if i < num_steps - 1:
-                x = (
-                    x
-                    + (alpha / 2) * score
-                    + torch.sqrt(alpha) * randn_like(x)
+                diffusion_noise = randn_like(x)
+                diffusion_delta = (
+                    (alpha / 2) * score
+                    + torch.sqrt(alpha) * diffusion_noise
                 )
             else:
-                x = x + (alpha / 2) * score
+                diffusion_delta = (alpha / 2) * score
 
-        # ORIGINAL LGFC on complete 384 measurement FOV.
-        if _should_correct(outer_step, config):
+            x = x + diffusion_mask * diffusion_delta
+
+        # Original LGFC still operates on complete 384 measurement FOV.
+        if _should_correct(
+            outer_step,
+            config,
+        ):
             if reference is None:
-                raise RuntimeError("LGFC reference was not constructed")
+                raise RuntimeError(
+                    "LGFC reference was not constructed"
+                )
 
             x_measurement = x[
                 :,
@@ -248,18 +375,30 @@ def dps2_lgfc_320(
             ].detach()
 
             with torch.no_grad():
-                x_corrected, _ = apply_lgfc_frequency_correction(
-                    x_fov=x_measurement,
-                    reference=reference,
-                    maps=inverseop.maps,
-                    mask=inverseop.mask,
-                    measurement=measurement,
-                    unsampled_weight=config.unsampled_weight,
-                    max_relative_update=config.max_relative_update,
-                    dc_growth_limit=config.dc_growth_limit,
-                    backtrack_factor=config.backtrack_factor,
-                    max_backtracks=config.max_backtracks,
-                    eps=config.eps,
+                x_corrected, _ = (
+                    apply_lgfc_frequency_correction(
+                        x_fov=x_measurement,
+                        reference=reference,
+                        maps=inverseop.maps,
+                        mask=inverseop.mask,
+                        measurement=measurement,
+                        unsampled_weight=(
+                            config.unsampled_weight
+                        ),
+                        max_relative_update=(
+                            config.max_relative_update
+                        ),
+                        dc_growth_limit=(
+                            config.dc_growth_limit
+                        ),
+                        backtrack_factor=(
+                            config.backtrack_factor
+                        ),
+                        max_backtracks=(
+                            config.max_backtracks
+                        ),
+                        eps=config.eps,
+                    )
                 )
 
                 x_next = x.detach().clone()
@@ -272,7 +411,7 @@ def dps2_lgfc_320(
 
             x = x_next
 
-    # Only report the central 320 target.
+    # Only report central 320 target.
     recon = x[
         :,
         :,
@@ -280,17 +419,40 @@ def dps2_lgfc_320(
         TARGET_START:TARGET_END,
     ].detach().squeeze(1)
 
-    noisypsnr = denoisedpsnr = noisyssim = denoisedssim = 0.0
-    noisynrmse = denoisednrmse = 0.0
+    noisypsnr = 0.0
+    denoisedpsnr = 0.0
+    noisyssim = 0.0
+    denoisedssim = 0.0
+    noisynrmse = 0.0
+    denoisednrmse = 0.0
 
     if clean is not None:
-        if clean.shape[-2:] != (MEASUREMENT_SIZE, MEASUREMENT_SIZE):
-            raise ValueError("clean GT must remain original 384x384")
+        if clean.shape[-2:] != (
+            MEASUREMENT_SIZE,
+            MEASUREMENT_SIZE,
+        ):
+            raise ValueError(
+                "clean GT must remain original 384x384"
+            )
 
-        gt_target = clean[:, :, 32:352, 32:352].squeeze(1)
-        init_target = x_init[:, :, 32:352, 32:352].squeeze(1)
+        gt_target = clean[
+            :,
+            :,
+            32:352,
+            32:352,
+        ].squeeze(1)
 
-        make_figures = __import__("utils").makeFigures
+        init_target = x_init[
+            :,
+            :,
+            32:352,
+            32:352,
+        ].squeeze(1)
+
+        make_figures = __import__(
+            "utils"
+        ).makeFigures
+
         (
             noisypsnr,
             denoisedpsnr,
