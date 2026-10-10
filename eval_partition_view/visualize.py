@@ -45,10 +45,19 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
     from matplotlib.patches import Rectangle
 
     maps = calculate_maps(estimates, gt)
-    magnitude_limit_raw = max(float(maps['magnitudes'].max()), float(maps['gt_magnitude'].max()))
-    difference_limit_raw = max(float(maps['differences'].max()), float(maps['spread'].max()))
+    # Figure display references only. Keep every raw map/statistic unchanged.
+    magnitude_limit_raw = float(np.percentile(maps['gt_magnitude'], 99))
+    difference_limit_raw = float(np.percentile(np.concatenate(
+        [maps['differences'].reshape(-1), maps['spread'].reshape(-1)]), 99))
     magnitude_vmax = args.magnitude_vmax or positive_limit(magnitude_limit_raw)
     difference_vmax = args.difference_vmax or positive_limit(difference_limit_raw)
+    magnitude_display = np.clip(maps['magnitudes'] / magnitude_vmax, 0, 1)
+    gt_display = np.clip(maps['gt_magnitude'] / magnitude_vmax, 0, 1)
+    mean_display = np.clip(np.abs(maps['mean_complex']) / magnitude_vmax, 0, 1)
+    magnitude_label = ('Magnitude / shared manual reference (display only)' if args.magnitude_vmax
+                       else 'Magnitude / GT P99 (display only)')
+    difference_label = ('D / S (raw units; manual clipping, P99 default)' if args.difference_vmax
+                        else 'D / S (raw units; joint P99 clipping)')
     residual_vmax = positive_limit(float(maps['gt_residuals'].max()))
     x, y, width, height = args.roi
     region = (slice(y, y + height), slice(x, x + width))
@@ -69,18 +78,18 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         assets.append(str(path.relative_to(Path(output_dir))))
 
     for j in range(10):
-        save_image(full_dir / f'd_step060_inner{j+1:02d}.png', maps['magnitudes'][j], 'gray', magnitude_vmax)
-    save_image(full_dir / 'gt_magnitude.png', maps['gt_magnitude'], 'gray', magnitude_vmax)
-    save_image(full_dir / 'complex_mean_magnitude.png', np.abs(maps['mean_complex']), 'gray', magnitude_vmax)
+        save_image(full_dir / f'd_step060_inner{j+1:02d}.png', magnitude_display[j], 'gray', 1.0)
+    save_image(full_dir / 'gt_magnitude.png', gt_display, 'gray', 1.0)
+    save_image(full_dir / 'complex_mean_magnitude.png', mean_display, 'gray', 1.0)
     for j in selected:
-        save_image(roi_dir / f'd_step060_inner{j+1:02d}_roi.png', maps['magnitudes'][j][region],
-                   'gray', magnitude_vmax, zoom=4)
-        save_image(diff_dir / f'D_inner{j+1:02d}.png', maps['differences'][j], 'magma', difference_vmax)
+        save_image(roi_dir / f'd_step060_inner{j+1:02d}_roi.png', magnitude_display[j][region],
+                   'gray', 1.0, zoom=4)
+        save_image(diff_dir / f'D_inner{j+1:02d}.png', maps['differences'][j], 'turbo', difference_vmax)
         save_image(diff_roi_dir / f'D_inner{j+1:02d}_roi.png', maps['differences'][j][region],
-                   'magma', difference_vmax, zoom=4)
-    save_image(roi_dir / 'gt_magnitude_roi.png', maps['gt_magnitude'][region], 'gray', magnitude_vmax, zoom=4)
-    save_image(destination / 'within_step_spread_S.png', maps['spread'], 'magma', difference_vmax)
-    save_image(destination / 'within_step_spread_S_roi.png', maps['spread'][region], 'magma', difference_vmax, zoom=4)
+                   'turbo', difference_vmax, zoom=4)
+    save_image(roi_dir / 'gt_magnitude_roi.png', gt_display[region], 'gray', 1.0, zoom=4)
+    save_image(destination / 'within_step_spread_S.png', maps['spread'], 'turbo', difference_vmax)
+    save_image(destination / 'within_step_spread_S_roi.png', maps['spread'][region], 'turbo', difference_vmax, zoom=4)
 
     def colorbar_file(filename, cmap, upper, label):
         fig, ax = plt.subplots(figsize=(5.4, 0.95), dpi=220)
@@ -91,49 +100,50 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         plt.close(fig)
         assets.append(str((destination / filename).relative_to(Path(output_dir))))
 
-    colorbar_file('magnitude_colorbar.png', 'gray', magnitude_vmax, 'Magnitude (raw tensor units)')
-    colorbar_file('variation_colorbar.png', 'magma', difference_vmax,
-                  'Complex deviation / population RMS (raw tensor units)')
+    colorbar_file('magnitude_colorbar.png', 'gray', 1.0, magnitude_label)
+    colorbar_file('variation_colorbar.png', 'turbo', difference_vmax, difference_label)
 
     fig, axes = plt.subplots(3, 5, figsize=(16.5, 10.6), dpi=200)
     for col, j in enumerate(selected):
-        axes[0, col].imshow(maps['magnitudes'][j], cmap='gray', vmin=0, vmax=magnitude_vmax,
+        axes[0, col].imshow(magnitude_display[j], cmap='gray', vmin=0, vmax=1.0,
                             interpolation='nearest')
         axes[0, col].add_patch(Rectangle((x-.5, y-.5), width, height, fill=False,
                                        edgecolor='#e2ba59', linewidth=1.0))
         off = offsets[j]
         axes[0, col].set_title(f'Inner loop {j+1}\noffset ({int(off[0])}, {int(off[1])})', fontsize=11)
-        axes[1, col].imshow(maps['magnitudes'][j][region], cmap='gray', vmin=0,
-                            vmax=magnitude_vmax, interpolation='nearest')
+        axes[1, col].imshow(magnitude_display[j][region], cmap='gray', vmin=0,
+                            vmax=1.0, interpolation='nearest')
         axes[1, col].set_title(f'Same ROI, inner {j+1}', fontsize=10)
-        axes[2, col].imshow(maps['differences'][j], cmap='magma', vmin=0,
+        axes[2, col].imshow(maps['differences'][j][region], cmap='turbo', vmin=0,
                             vmax=difference_vmax, interpolation='nearest')
-        axes[2, col].set_title(f'$|d_{{60,{j+1}}} - \\bar d_{{60}}|$', fontsize=11)
-    axes[0, 4].imshow(maps['gt_magnitude'], cmap='gray', vmin=0, vmax=magnitude_vmax,
+        axes[2, col].set_title(f'ROI: $|d_{{60,{j+1}}} - \\bar d_{{60}}|$', fontsize=11)
+    axes[0, 4].imshow(gt_display, cmap='gray', vmin=0, vmax=1.0,
                       interpolation='nearest')
     axes[0, 4].add_patch(Rectangle((x-.5, y-.5), width, height, fill=False,
                                  edgecolor='#e2ba59', linewidth=1.0))
     axes[0, 4].set_title('GT magnitude', fontsize=11)
-    axes[1, 4].imshow(maps['gt_magnitude'][region], cmap='gray', vmin=0,
-                      vmax=magnitude_vmax, interpolation='nearest')
+    axes[1, 4].imshow(gt_display[region], cmap='gray', vmin=0,
+                      vmax=1.0, interpolation='nearest')
     axes[1, 4].set_title('GT, same ROI', fontsize=10)
-    axes[2, 4].imshow(maps['spread'], cmap='magma', vmin=0, vmax=difference_vmax,
+    axes[2, 4].imshow(maps['spread'][region], cmap='turbo', vmin=0, vmax=difference_vmax,
                       interpolation='nearest')
-    axes[2, 4].set_title('$S$: population RMS over all 10', fontsize=10)
+    axes[2, 4].set_title('$S$: ROI RMS over all 10', fontsize=10)
     for ax in axes.flat:
         ax.axis('off')
     fig.suptitle(TITLE, fontsize=17, y=.975)
     fig.text(.5, .935, f'Original Baseline, sample 3, outer step 60, actual sigma={sigma:.8g}',
              ha='center', fontsize=11)
-    fig.subplots_adjust(left=.02, right=.98, top=.88, bottom=.16, wspace=.10, hspace=.25)
-    cax1 = fig.add_axes([.12, .093, .32, .018])
-    cax2 = fig.add_axes([.57, .093, .32, .018])
-    fig.colorbar(ScalarMappable(norm=Normalize(0, magnitude_vmax), cmap='gray'), cax=cax1,
-                 orientation='horizontal', label='Shared magnitude scale (raw tensor units)')
-    fig.colorbar(ScalarMappable(norm=Normalize(0, difference_vmax), cmap='magma'), cax=cax2,
-                 orientation='horizontal', label='Shared D / S scale (raw tensor units)')
-    fig.text(.5, .018, 'Sequential inner loops: partition, reconstruction state and injected noise all vary.\n'
-             'The complex mean is an offline diagnostic only.', ha='center', fontsize=10)
+    fig.subplots_adjust(left=.02, right=.98, top=.88, bottom=.18, wspace=.10, hspace=.25)
+    cax1 = fig.add_axes([.12, .112, .32, .018])
+    cax2 = fig.add_axes([.57, .112, .32, .018])
+    fig.colorbar(ScalarMappable(norm=Normalize(0, 1.0), cmap='gray'), cax=cax1,
+                 orientation='horizontal', label=magnitude_label)
+    fig.colorbar(ScalarMappable(norm=Normalize(0, difference_vmax), cmap='turbo'), cax=cax2,
+                 orientation='horizontal', label=difference_label)
+    fig.text(.5, .010, 'Sequential inner loops at one sigma: partition, input state and injected noise may differ.\n'
+             'D/S show deviation from the within-step complex mean, not GT error; they do not isolate partition effects or establish LGFC efficacy.\n'
+             'Shared normalization and clipping affect display only; all complex statistics remain unchanged.',
+             ha='center', fontsize=9)
     fig.savefig(destination / 'overview.png', dpi=220, facecolor='white')
     plt.close(fig)
     assets.append('figures/overview.png')
@@ -145,21 +155,21 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         for ax, j in zip(axs, selected):
             residual = maps['gt_residuals'][j][region]
             save_image(residual_dir / f'GT_complex_residual_inner{j+1:02d}_roi.png', residual,
-                       'magma', residual_vmax, zoom=4)
-            ax.imshow(residual, cmap='magma', vmin=0, vmax=residual_vmax, interpolation='nearest')
+                       'turbo', residual_vmax, zoom=4)
+            ax.imshow(residual, cmap='turbo', vmin=0, vmax=residual_vmax, interpolation='nearest')
             ax.set_title(f'Inner {j+1}: $|d_{{60,{j+1}}} - GT|$')
             ax.axis('off')
         fig.suptitle('Optional auxiliary: complex GT residual in the same ROI', fontsize=13)
         fig.subplots_adjust(left=.02, right=.98, top=.78, bottom=.34, wspace=.12)
         cax = fig.add_axes([.3, .18, .4, .025])
-        fig.colorbar(ScalarMappable(norm=Normalize(0, residual_vmax), cmap='magma'), cax=cax,
+        fig.colorbar(ScalarMappable(norm=Normalize(0, residual_vmax), cmap='turbo'), cax=cax,
                      orientation='horizontal', label='Complex GT residual (raw tensor units)')
         fig.text(.5, .025, 'Complex GT residual is an auxiliary output, not deviation to the within-step mean.\n'
                  'No magnitude PSNR interpretation or phase alignment is applied.', ha='center', fontsize=9)
         fig.savefig(destination / 'gt_residual_overview.png', dpi=220, facecolor='white')
         plt.close(fig)
         assets.append('figures/gt_residual_overview.png')
-        colorbar_file('gt_complex_residual_colorbar.png', 'magma', residual_vmax,
+        colorbar_file('gt_complex_residual_colorbar.png', 'turbo', residual_vmax,
                       'Complex GT residual (raw tensor units)')
 
     metadata = {
@@ -168,10 +178,25 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         'roi_slice_row_col': [y, y+height, x, x+width],
         'roi_png_zoom': '4x nearest-neighbor replication, identical for every panel',
         'magnitude_range': [0.0, magnitude_vmax], 'variation_range_D_and_S': [0.0, difference_vmax],
+        'magnitude_display_range': [0.0, 1.0],
+        'gt_magnitude_q99': magnitude_limit_raw, 'magnitude_percentile': 99,
+        'magnitude_reference_actual': magnitude_vmax,
+        'magnitude_manual_override': args.magnitude_vmax is not None,
+        'magnitude_zero_percentile_fallback': args.magnitude_vmax is None and magnitude_limit_raw <= 0,
+        'magnitude_display_formula': 'clip(abs(I) / shared_reference, 0, 1); default shared_reference=P99(abs(GT))',
+        'magnitude_normalization_scope': 'Figure display only; not historical MATLAB ACS-99 data normalization',
         'default_magnitude_limit_raw': magnitude_limit_raw,
         'default_variation_limit_raw': difference_limit_raw,
-        'magnitude_scale_policy': 'one shared full-FOV range for all ten estimates and GT',
-        'variation_scale_policy': 'one shared full-FOV range across all ten D_j and S, also used for ROI',
+        'magnitude_scale_policy': 'one shared GT full-FOV P99 reference for all ten estimates, GT, mean and ROI; manual override supported',
+        'variation_scale_policy': 'one shared joint full-FOV P99 range across all ten D_j and S, also used for ROI; manual override supported',
+        'variation_percentile': 99, 'variation_colormap': 'turbo',
+        'variation_percentile_population': 'concatenated full-FOV pixels of all ten D_j and one S, each map included once',
+        'variation_manual_override': args.difference_vmax is not None,
+        'variation_zero_percentile_fallback': args.difference_vmax is None and difference_limit_raw <= 0,
+        'percentile_interpolation': 'linear (NumPy percentile default)',
+        'variation_clipping': 'color saturation only, raw D_j and S are unchanged',
+        'overview_third_row': 'four selected ROI differences and ROI population RMS',
+        'display_only': True, 'raw_complex_tensors_modified': False,
         'per_panel_normalization': False, 'phase_alignment': False,
         'difference_formula': 'D_j = abs(d_j - mean_complex(all 10))',
         'spread_formula': 'S = sqrt(mean_j(abs(d_j - mean_complex(all 10))**2)), divisor=10',
@@ -179,6 +204,8 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         'gt_residual_enabled': bool(args.gt_residual),
         'gt_residual_formula': 'abs(d_j - gt), complex residual, not magnitude residual',
         'gt_residual_range': [0.0, residual_vmax] if args.gt_residual else None,
+        'gt_residual_colormap': 'turbo' if args.gt_residual else None,
+        'gt_residual_scale_policy': 'unchanged independent maximum over all ten full-FOV complex GT residuals',
         'interpretation': 'Variation also includes sequential state updates and injected noise. '
                           'Does not isolate partition effects or prove EMA/LGFC effectiveness.',
         'png_assets': assets,

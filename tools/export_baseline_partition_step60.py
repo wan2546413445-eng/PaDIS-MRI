@@ -42,9 +42,9 @@ def parse_args():
     parser.add_argument('--display_indices', type=int, nargs=4, default=[1, 3, 6, 10],
                         help='Four one-based inner-loop numbers for overview/ROI panels')
     parser.add_argument('--magnitude_vmax', type=float, default=None,
-                        help='One shared magnitude upper limit; default=max of all ten estimates and GT')
+                        help='Override shared raw-unit magnitude reference; default=GT magnitude P99; display=clip(abs(I)/reference,0,1)')
     parser.add_argument('--difference_vmax', type=float, default=None,
-                        help='One shared D_j/S upper limit; default=max over all ten D_j and S')
+                        help='Override shared raw-unit D_j/S upper limit; default=joint full-FOV P99 of all ten D_j and S; turbo display clipping only')
     parser.add_argument('--gt_residual', action='store_true',
                         help='Also export separate complex GT residual ROI maps |d_j - gt|')
     parser.add_argument('--capture_only', action='store_true', help='Persist complex tensors without plotting')
