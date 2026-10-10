@@ -1,0 +1,92 @@
+{
+  "reviewed_repository": "wan2546413445-eng/PaDIS-MRI",
+  "reviewed_branch": "main-WSY",
+  "reviewed_commit": "442af3906efc75072b7c6ee67a5e6ba1cddf9338",
+  "reviewed_blob_shas": {
+    "eval/recon.py": "b8a0ea9c41e6646fde804100f66b0e2a9f6d42e7",
+    "eval/denoise_padding.py": "ad12fffcdde3ad16e3887836ebb3700483935b66",
+    "eval/evaluator.py": "adbf9e6102b77b093d35190c2b183bbda0916a06",
+    "eval/evaluator_fixed_seed123.py": "67dedb1f6538051831dee6a8812d81fc09a6866e",
+    "eval/run.py": "78dfb625ba6014c5a242d73afb154e3c9f882a7e",
+    "eval/inverse_operators.py": "f8aeb764011957cfd583b7842a9f6fcf172ee90c",
+    "eval/utils.py": "50b54604cbdc17929a0cffe49f61c84e19ca51da",
+    "bash/eval_32_fixed_seed123.sh": "50c7fb99e2e16220f387fbd9531000d8e417e478"
+  },
+  "function_signatures": [
+    {
+      "path": "eval/recon.py",
+      "function": "_ve_base_schedule",
+      "ast_sha256": "e15e71482e74d1f0581c3ab248fc775ee3431efa3323cef71b78d8bd6e73aa13"
+    },
+    {
+      "path": "eval/recon.py",
+      "function": "dps2",
+      "ast_sha256": "1901ae030a268dc6e27242a209c2085ef3b7818aaaa0ec1c9ad0995f4e3486e0"
+    },
+    {
+      "path": "eval/denoise_padding.py",
+      "function": "getIndices",
+      "ast_sha256": "bfff2a907e8e7abe910c3efa753dedebe934ecacfdc824b7ba47e97bedc14984"
+    },
+    {
+      "path": "eval/denoise_padding.py",
+      "function": "denoisedFromPatches",
+      "ast_sha256": "11b200fd6c27cedd587ade0fe2833f9365cc8e4d6329ae73c301bf2cdadd3618"
+    },
+    {
+      "path": "eval/evaluator_fixed_seed123.py",
+      "function": "DPSHyperEvaluator.__init__",
+      "ast_sha256": "c2cbca2fff06d4e5711bcc7ae117272ce7f0ac1d0802d0514c13561dbb6c1020"
+    },
+    {
+      "path": "eval/evaluator_fixed_seed123.py",
+      "function": "DPSHyperEvaluator._set_sample_seed",
+      "ast_sha256": "6ad87952b99894d32cb63805386964ba57d218256defe6f4398e27381a7cdc7a"
+    },
+    {
+      "path": "eval/evaluator_fixed_seed123.py",
+      "function": "DPSHyperEvaluator._reset_sample_latent",
+      "ast_sha256": "7d649082df70e2dbd95f4a4cb0906eb529a31e8ceb690524be5a2cf69bd20331"
+    },
+    {
+      "path": "eval/evaluator_fixed_seed123.py",
+      "function": "DPSHyperEvaluator._load_sample",
+      "ast_sha256": "6ad1c7a70ac890aa17ee2d017f8c462d2da9d566b5003d90712b37ea8f2be877"
+    },
+    {
+      "path": "eval/evaluator_fixed_seed123.py",
+      "function": "DPSHyperEvaluator._build_latents_and_pos",
+      "ast_sha256": "aa0aa79308f100e8446f6317b8a6c1d396401ed36710337fbaebcb0059fc4e2f"
+    },
+    {
+      "path": "eval/evaluator_fixed_seed123.py",
+      "function": "DPSHyperEvaluator.dps2_wrapper",
+      "ast_sha256": "f8c43d8fbf7f4932d1b80e6402b21e9ad1e86d0c7e8e6f79a1f9a86b1c5e9776"
+    },
+    {
+      "path": "eval/inverse_operators.py",
+      "function": "MRI_utils.forward",
+      "ast_sha256": "c9f32e5f34a405d837cb061943d8db1d2634ac730884d0d6b1a0aa52af799795"
+    },
+    {
+      "path": "eval/inverse_operators.py",
+      "function": "MRI_utils.adjoint",
+      "ast_sha256": "da0f661eba58c99143dd7aa7ea6ab0f325d31ed91f65b481a6caa226b9808b90"
+    },
+    {
+      "path": "eval/inverse_operators.py",
+      "function": "fft",
+      "ast_sha256": "33105342ca053b3cbf62d69687c6b772ec50c6fcdbf5a033de5519d2dd18a730"
+    },
+    {
+      "path": "eval/inverse_operators.py",
+      "function": "ifft",
+      "ast_sha256": "e8e90fe4a92596d56a0be14816fadf0881f8188c8ceddffdc7948a29c3bc97e3"
+    },
+    {
+      "path": "eval/utils.py",
+      "function": "fftmod",
+      "ast_sha256": "9c730c8ab494b441f1532c068dca8d46516eb4da201088b07fca94fb185776b0"
+    }
+  ]
+}
