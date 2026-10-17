@@ -1,0 +1,101 @@
+AUTOMATED TEST LOG. ALL INPUTS AND EXPORTED TEST TABLES ARE SYNTHETIC, NOT MRI EXPERIMENT RESULTS.
+
+test_defaults (__main__.CLITests.test_defaults) ... ok
+test_missing_data_produces_no_results (__main__.CLITests.test_missing_data_produces_no_results) ... ok
+test_invalid_probabilities (__main__.DistributionTests.test_invalid_probabilities) ... ok
+test_inverse_cdf_order_and_endpoints (__main__.DistributionTests.test_inverse_cdf_order_and_endpoints) ... ok
+test_unequal_empirical_distribution (__main__.DistributionTests.test_unequal_empirical_distribution) ... ok
+test_all_boundaries_and_outside (__main__.GeometryTests.test_all_boundaries_and_outside) ... ok
+test_all_query_sites_after_single_rectangle (__main__.GeometryTests.test_all_query_sites_after_single_rectangle) ... ok
+test_below_half_is_excluded (__main__.GeometryTests.test_below_half_is_excluded) ... ok
+test_cross_scale_not_compared (__main__.GeometryTests.test_cross_scale_not_compared) ... ok
+test_diagonal_area (__main__.GeometryTests.test_diagonal_area) ... ok
+test_duplicate_is_overlap (__main__.GeometryTests.test_duplicate_is_overlap) ... ok
+test_exact_half_is_included (__main__.GeometryTests.test_exact_half_is_included) ... ok
+test_exact_index_against_naive (__main__.GeometryTests.test_exact_index_against_naive) ... ok
+test_invalid_geometry (__main__.GeometryTests.test_invalid_geometry) ... ok
+test_multiple_witnesses_only_one_count (__main__.GeometryTests.test_multiple_witnesses_only_one_count) ... ok
+test_no_combining_intersections (__main__.GeometryTests.test_no_combining_intersections) ... ok
+test_zero_denominators (__main__.GeometryTests.test_zero_denominators) ... ok
+test_dataset_preprocessing_matches_original_operations (__main__.OriginalSamplerTests.test_dataset_preprocessing_matches_original_operations) ... ok
+test_e0_original_probabilities_uniform (__main__.OriginalSamplerTests.test_e0_original_probabilities_uniform) ... ok
+test_original_cache_exact_all_scales (__main__.OriginalSamplerTests.test_original_cache_exact_all_scales) ... ok
+test_original_flat_index_mapping (__main__.OriginalSamplerTests.test_original_flat_index_mapping) ... ok
+test_real_sampler_empirical_small_canvas (__main__.OriginalSamplerTests.test_real_sampler_empirical_small_canvas) ... ok
+test_synthetic_cli_outputs_and_provenance (__main__.OriginalSamplerTests.test_synthetic_cli_outputs_and_provenance) ... Checkpoint 0.1 kimg -> actual 0.121, sample0=27
+Checkpoint 0.2 kimg -> actual 0.242, sample0=59
+Checkpoint 0.5 kimg -> actual 0.605, sample0=198
+Checkpoint 1 kimg -> actual 1.089, sample0=348
+ok
+test_zero_and_nonfinite_uniform_fallback (__main__.OriginalSamplerTests.test_zero_and_nonfinite_uniform_fallback) ... ok
+test_continuous_prefix_and_checkpoint_crossing (__main__.ScheduleTests.test_continuous_prefix_and_checkpoint_crossing) ... Completed: /tmp/oc_SYNTHETIC_cli_fg37x0qz/results/run_20261017T094809_902811Z
+# Spatial Overlap Diagnosis
+
+Actual coordinate simulation on supplied MRI data.
+Counts refer to the selected sample only unless explicitly labelled total_patch_events.
+
+| Mode | Target kimg | Actual kimg | Total sample patches | 64 patches | R64 (%) | Rall (%) | R64,total (%) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| uniform_e0 | 0.1 | 0.121 | 27 | 10 | 90.0000 | 66.6667 | 33.3333 |
+| uniform_e0 | 0.2 | 0.242 | 59 | 29 | 96.5517 | 84.7458 | 47.4576 |
+| uniform_e0 | 0.5 | 0.605 | 198 | 50 | 98.0000 | 79.7980 | 24.7475 |
+| uniform_e0 | 1 | 1.089 | 348 | 76 | 98.6842 | 87.0690 | 21.5517 |
+| agga | 0.1 | 0.121 | 27 | 10 | 90.0000 | 66.6667 | 33.3333 |
+| agga | 0.2 | 0.242 | 59 | 29 | 96.5517 | 84.7458 | 47.4576 |
+| agga | 0.5 | 0.605 | 198 | 50 | 98.0000 | 82.3232 | 24.7475 |
+| agga | 1 | 1.089 | 348 | 76 | 98.6842 | 89.0805 | 21.5517 |
+
+Cumulative repeated spatial coverage does not establish denoising disagreement or OC effectiveness.
+This controlled schedule is not the original training RNG trajectory.
+Source: user-provided resumed E0 configuration, replayed continuously from 0 kimg.
+Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+ok
+test_indices_equal_actual_infinite_sampler (__main__.ScheduleTests.test_indices_equal_actual_infinite_sampler) ... ok
+test_metric_identities (__main__.ScheduleTests.test_metric_identities) ... Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+ok
+test_mode_order_and_standalone_dont_change_results (__main__.ScheduleTests.test_mode_order_and_standalone_dont_change_results) ... Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+ok
+test_multiple_occurrences_one_round (__main__.ScheduleTests.test_multiple_occurrences_one_round) ... ok
+test_real_default_counter_and_events (__main__.ScheduleTests.test_real_default_counter_and_events) ... ok
+test_repeated_simulations_identical (__main__.ScheduleTests.test_repeated_simulations_identical) ... Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+ok
+test_shared_schedule_and_identical_counts (__main__.ScheduleTests.test_shared_schedule_and_identical_counts) ... Checkpoint 0.5 kimg -> actual 0.605, sample0=84
+Checkpoint 1 kimg -> actual 1.089, sample0=150
+Checkpoint 5 kimg -> actual 5.082, sample0=675
+Checkpoint 10 kimg -> actual 10.043, sample0=1405
+ok
+
+----------------------------------------------------------------------
+Ran 32 tests in 5.226s
+
+OK

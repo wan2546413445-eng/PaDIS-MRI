@@ -58,7 +58,7 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
                        else 'Magnitude / GT P99 (display only)')
     difference_label = ('D / S (raw units; manual clipping, P99 default)' if args.difference_vmax
                         else 'D / S (raw units; joint P99 clipping)')
-    residual_vmax = positive_limit(float(maps['gt_residuals'].max()))
+    residual_vmax = 0.2  # Shared GT residual display limit only; raw maps stay unchanged.
     x, y, width, height = args.roi
     region = (slice(y, y + height), slice(x, x + width))
     selected = [j - 1 for j in args.display_indices]
@@ -91,10 +91,23 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
     save_image(destination / 'within_step_spread_S.png', maps['spread'], 'turbo', difference_vmax)
     save_image(destination / 'within_step_spread_S_roi.png', maps['spread'][region], 'turbo', difference_vmax, zoom=4)
 
-    def colorbar_file(filename, cmap, upper, label):
+    # Image-only assets for PPT/Illustrator: reuse the same ROI and display scales.
+    asset_dir = Path(output_dir) / 'assets'
+    asset_dir.mkdir(exist_ok=False)
+    for inner in (3, 6, 10):
+        save_image(asset_dir / f'roi_inner{inner}.png', magnitude_display[inner-1][region],
+                   'gray', 1.0, zoom=4)
+        if args.gt_residual:
+            save_image(asset_dir / f'residual_inner{inner}.png',
+                       maps['gt_residuals'][inner-1][region], 'turbo', residual_vmax, zoom=4)
+    save_image(asset_dir / 'gt_roi.png', gt_display[region], 'gray', 1.0, zoom=4)
+
+    def colorbar_file(filename, cmap, upper, label, ticks=None):
         fig, ax = plt.subplots(figsize=(5.4, 0.95), dpi=220)
-        fig.colorbar(ScalarMappable(norm=Normalize(0, upper), cmap=cmap), cax=ax,
-                     orientation='horizontal', label=label)
+        bar = fig.colorbar(ScalarMappable(norm=Normalize(0, upper), cmap=cmap), cax=ax,
+                           orientation='horizontal', label=label, ticks=ticks)
+        if ticks is not None:
+            bar.set_ticklabels([format(value, 'g') for value in ticks])
         fig.subplots_adjust(left=.08, right=.96, bottom=.53, top=.9)
         fig.savefig(destination / filename, dpi=220, facecolor='white')
         plt.close(fig)
@@ -103,47 +116,58 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
     colorbar_file('magnitude_colorbar.png', 'gray', 1.0, magnitude_label)
     colorbar_file('variation_colorbar.png', 'turbo', difference_vmax, difference_label)
 
-    fig, axes = plt.subplots(3, 5, figsize=(16.5, 10.6), dpi=200)
+    # Explicit physical sizes keep every ROI panel and the vertical colorbar
+    # exactly the same height, including when a rectangular ROI is requested.
+    panel_width, gap, left = 2.3, .10, .42
+    bar_gap, bar_width, right = .08, .10, 1.05
+    fov_height, roi_height = panel_width, panel_width * height / width
+    row_gap, top, bottom = .18, .34, .14
+    figure_width = left + 4*panel_width + 3*gap + bar_gap + bar_width + right
+    figure_height = top + fov_height + 2*roi_height + 2*row_gap + bottom
+    fig = plt.figure(figsize=(figure_width, figure_height), dpi=200)
+    row_bottoms = [bottom + 2*roi_height + 2*row_gap,
+                   bottom + roi_height + row_gap, bottom]
+    row_heights = [fov_height, roi_height, roi_height]
+    row_labels = ['Full-FOV', 'ROI', 'Difference']
+
     for col, j in enumerate(selected):
-        axes[0, col].imshow(magnitude_display[j], cmap='gray', vmin=0, vmax=1.0,
-                            interpolation='nearest')
-        axes[0, col].add_patch(Rectangle((x-.5, y-.5), width, height, fill=False,
+        arrays = [magnitude_display[j], magnitude_display[j][region],
+                  maps['differences'][j][region]]
+        for row, array in enumerate(arrays):
+            ax = fig.add_axes([(left + col*(panel_width+gap))/figure_width,
+                               row_bottoms[row]/figure_height,
+                               panel_width/figure_width, row_heights[row]/figure_height])
+            ax.imshow(array, cmap='gray' if row < 2 else 'turbo', vmin=0,
+                      vmax=1.0 if row < 2 else difference_vmax, interpolation='nearest')
+            ax.axis('off')
+            if row == 0:
+                ax.set_title(f'Partition {j+1}', fontsize=12, pad=5)
+                ax.add_patch(Rectangle((x-.5, y-.5), width, height, fill=False,
                                        edgecolor='#e2ba59', linewidth=1.0))
-        off = offsets[j]
-        axes[0, col].set_title(f'Inner loop {j+1}\noffset ({int(off[0])}, {int(off[1])})', fontsize=11)
-        axes[1, col].imshow(magnitude_display[j][region], cmap='gray', vmin=0,
-                            vmax=1.0, interpolation='nearest')
-        axes[1, col].set_title(f'Same ROI, inner {j+1}', fontsize=10)
-        axes[2, col].imshow(maps['differences'][j][region], cmap='turbo', vmin=0,
-                            vmax=difference_vmax, interpolation='nearest')
-        axes[2, col].set_title(f'ROI: $|d_{{60,{j+1}}} - \\bar d_{{60}}|$', fontsize=11)
-    axes[0, 4].imshow(gt_display, cmap='gray', vmin=0, vmax=1.0,
-                      interpolation='nearest')
-    axes[0, 4].add_patch(Rectangle((x-.5, y-.5), width, height, fill=False,
-                                 edgecolor='#e2ba59', linewidth=1.0))
-    axes[0, 4].set_title('GT magnitude', fontsize=11)
-    axes[1, 4].imshow(gt_display[region], cmap='gray', vmin=0,
-                      vmax=1.0, interpolation='nearest')
-    axes[1, 4].set_title('GT, same ROI', fontsize=10)
-    axes[2, 4].imshow(maps['spread'][region], cmap='turbo', vmin=0, vmax=difference_vmax,
-                      interpolation='nearest')
-    axes[2, 4].set_title('$S$: ROI RMS over all 10', fontsize=10)
-    for ax in axes.flat:
-        ax.axis('off')
-    fig.suptitle(TITLE, fontsize=17, y=.975)
-    fig.text(.5, .935, f'Original Baseline, sample 3, outer step 60, actual sigma={sigma:.8g}',
-             ha='center', fontsize=11)
-    fig.subplots_adjust(left=.02, right=.98, top=.88, bottom=.18, wspace=.10, hspace=.25)
-    cax1 = fig.add_axes([.12, .112, .32, .018])
-    cax2 = fig.add_axes([.57, .112, .32, .018])
-    fig.colorbar(ScalarMappable(norm=Normalize(0, 1.0), cmap='gray'), cax=cax1,
-                 orientation='horizontal', label=magnitude_label)
-    fig.colorbar(ScalarMappable(norm=Normalize(0, difference_vmax), cmap='turbo'), cax=cax2,
-                 orientation='horizontal', label=difference_label)
-    fig.text(.5, .010, 'Sequential inner loops at one sigma: partition, input state and injected noise may differ.\n'
-             'D/S show deviation from the within-step complex mean, not GT error; they do not isolate partition effects or establish LGFC efficacy.\n'
-             'Shared normalization and clipping affect display only; all complex statistics remain unchanged.',
-             ha='center', fontsize=9)
+            if col == 0:
+                ax.text(-.055, .5, row_labels[row], transform=ax.transAxes,
+                        rotation=90, ha='right', va='center', fontsize=11)
+    spread_ax = fig.add_axes([(left + 3*(panel_width+gap))/figure_width,
+                             bottom/figure_height, panel_width/figure_width,
+                             roi_height/figure_height])
+    spread_ax.imshow(maps['spread'][region], cmap='turbo', vmin=0,
+                     vmax=difference_vmax, interpolation='nearest')
+    spread_ax.axis('off')
+    spread_ax.set_title('Variation S', fontsize=12, pad=5)
+    cax = fig.add_axes([(left + 4*panel_width + 3*gap + bar_gap)/figure_width,
+                       bottom/figure_height, bar_width/figure_width,
+                       roi_height/figure_height])
+    colorbar_ticks = [0.0, difference_vmax/2, difference_vmax]
+    # Significant-digit formatting selects decimal/scientific notation from
+    # the actual scale, without hiding the upper endpoint in an offset label.
+    for precision in range(4, 11):
+        colorbar_tick_labels = ['0'] + [format(v, f'.{precision}g') for v in colorbar_ticks[1:]]
+        if len(set(colorbar_tick_labels)) == 3:
+            break
+    colorbar = fig.colorbar(ScalarMappable(norm=Normalize(0, difference_vmax), cmap='turbo'),
+                           cax=cax, orientation='vertical', ticks=colorbar_ticks)
+    colorbar.set_ticklabels(colorbar_tick_labels)
+    colorbar.ax.tick_params(labelsize=10, length=3, pad=4)
     fig.savefig(destination / 'overview.png', dpi=220, facecolor='white')
     plt.close(fig)
     assets.append('figures/overview.png')
@@ -151,7 +175,7 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
     if args.gt_residual:
         residual_dir = destination / 'gt_complex_residual_roi'
         residual_dir.mkdir()
-        fig, axs = plt.subplots(1, 4, figsize=(13, 4.6), dpi=200)
+        fig, axs = plt.subplots(1, len(selected), figsize=(3.25*len(selected), 4.6), dpi=200)
         for ax, j in zip(axs, selected):
             residual = maps['gt_residuals'][j][region]
             save_image(residual_dir / f'GT_complex_residual_inner{j+1:02d}_roi.png', residual,
@@ -162,15 +186,18 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         fig.suptitle('Optional auxiliary: complex GT residual in the same ROI', fontsize=13)
         fig.subplots_adjust(left=.02, right=.98, top=.78, bottom=.34, wspace=.12)
         cax = fig.add_axes([.3, .18, .4, .025])
-        fig.colorbar(ScalarMappable(norm=Normalize(0, residual_vmax), cmap='turbo'), cax=cax,
-                     orientation='horizontal', label='Complex GT residual (raw tensor units)')
+        residual_colorbar = fig.colorbar(
+            ScalarMappable(norm=Normalize(0, residual_vmax), cmap='turbo'), cax=cax,
+            orientation='horizontal', label='Complex GT residual (raw tensor units)',
+            ticks=[0.0, 0.1, 0.2])
+        residual_colorbar.set_ticklabels(['0', '0.1', '0.2'])
         fig.text(.5, .025, 'Complex GT residual is an auxiliary output, not deviation to the within-step mean.\n'
                  'No magnitude PSNR interpretation or phase alignment is applied.', ha='center', fontsize=9)
         fig.savefig(destination / 'gt_residual_overview.png', dpi=220, facecolor='white')
         plt.close(fig)
         assets.append('figures/gt_residual_overview.png')
         colorbar_file('gt_complex_residual_colorbar.png', 'turbo', residual_vmax,
-                      'Complex GT residual (raw tensor units)')
+                      'Complex GT residual (raw tensor units)', ticks=[0.0, 0.1, 0.2])
 
     metadata = {
         'figure_title': TITLE, 'input_pt': str(getattr(args, 'input_pt', '') or ''),
@@ -195,7 +222,9 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         'variation_zero_percentile_fallback': args.difference_vmax is None and difference_limit_raw <= 0,
         'percentile_interpolation': 'linear (NumPy percentile default)',
         'variation_clipping': 'color saturation only, raw D_j and S are unchanged',
-        'overview_third_row': 'four selected ROI differences and ROI population RMS',
+        'overview_third_row': 'three selected ROI differences and ROI population RMS over all ten estimates',
+        'overview_colorbar_ticks': colorbar_ticks,
+        'overview_colorbar_tick_labels': colorbar_tick_labels,
         'display_only': True, 'raw_complex_tensors_modified': False,
         'per_panel_normalization': False, 'phase_alignment': False,
         'difference_formula': 'D_j = abs(d_j - mean_complex(all 10))',
@@ -205,7 +234,8 @@ def export_arrays(estimates, gt, offsets, sigma, output_dir, args):
         'gt_residual_formula': 'abs(d_j - gt), complex residual, not magnitude residual',
         'gt_residual_range': [0.0, residual_vmax] if args.gt_residual else None,
         'gt_residual_colormap': 'turbo' if args.gt_residual else None,
-        'gt_residual_scale_policy': 'unchanged independent maximum over all ten full-FOV complex GT residuals',
+        'gt_residual_scale_policy': 'fixed shared display range [0, 0.2] for all complex GT residual panels and assets; color saturation only',
+        'gt_residual_colorbar_ticks': [0.0, 0.1, 0.2] if args.gt_residual else None,
         'interpretation': 'Variation also includes sequential state updates and injected noise. '
                           'Does not isolate partition effects or prove EMA/LGFC effectiveness.',
         'png_assets': assets,

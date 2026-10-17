@@ -39,8 +39,8 @@ def parse_args():
     parser.add_argument('--roi', type=int, nargs=4, default=[144, 144, 96, 96],
                         metavar=('X', 'Y', 'WIDTH', 'HEIGHT'),
                         help='Zero-based ROI in original 384 FOV; default is geometric center, not error-selected')
-    parser.add_argument('--display_indices', type=int, nargs=4, default=[1, 3, 6, 10],
-                        help='Four one-based inner-loop numbers for overview/ROI panels')
+    parser.add_argument('--display_indices', type=int, nargs=3, default=[3, 6, 10],
+                        help='Three one-based inner-loop numbers for overview/ROI panels')
     parser.add_argument('--magnitude_vmax', type=float, default=None,
                         help='Override shared raw-unit magnitude reference; default=GT magnitude P99; display=clip(abs(I)/reference,0,1)')
     parser.add_argument('--difference_vmax', type=float, default=None,
@@ -53,8 +53,8 @@ def parse_args():
     x, y, width, height = args.roi
     if min(x, y) < 0 or min(width, height) <= 0 or x+width > 384 or y+height > 384:
         parser.error('--roi must be a non-empty rectangle inside the original 384x384 FOV')
-    if len(set(args.display_indices)) != 4 or any(not 1 <= j <= 10 for j in args.display_indices):
-        parser.error('--display_indices needs four distinct values in 1..10')
+    if len(set(args.display_indices)) != 3 or any(not 1 <= j <= 10 for j in args.display_indices):
+        parser.error('--display_indices needs three distinct values in 1..10')
     for name in ['magnitude_vmax', 'difference_vmax']:
         value = getattr(args, name)
         if value is not None and (not math.isfinite(value) or value <= 0):
