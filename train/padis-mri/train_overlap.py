@@ -123,7 +123,7 @@ def parse_float_list(s):
 @click.option(
     '--overlap-mode',
     help='Overlap experiment mode',
-    type=click.Choice(['same', 'diff', 'independent']),
+    type=click.Choice(['same', 'diff', 'independent', 'same_center']),
     required=True,
 )
 @click.option('--lambda-overlap', help='Overlap auxiliary loss weight', type=float, default=0.01, show_default=True)
@@ -223,9 +223,12 @@ def main(**kwargs):
                 overlap_mode='diff',
             )
 
-        elif opts.overlap_mode == 'independent':
-            # 仅在 64×64 patch 分支启用独立噪声、中心引导的 overlap loss。
-            # 其他尺度由 loss 类内部回退到原始 Patch_EDMLoss。
+        elif opts.overlap_mode in ('independent', 'same_center'):
+            # 当前几何引导 OC：只改变重叠区域的噪声相关性，保留双 GT 和 OC 公式。
+            # independent: 两个 patch 各自加入独立高斯噪声。
+            # same_center: 先对整图加一份噪声，再裁剪两个重叠 patch。
+            # 16x16、32x32 尺度继续回退到原始 Patch_EDMLoss。
+            noise_mode = 'same' if opts.overlap_mode == 'same_center' else 'independent'
             c.loss_kwargs.class_name = (
                 'training.patch_overlap_independent_loss.'
                 'IndependentNoiseOverlapPatch_EDMLoss'
@@ -234,6 +237,7 @@ def main(**kwargs):
                 P_mean=-1.2, P_std=1.2, sigma_data=0.5,
                 lambda_overlap=opts.lambda_overlap,
                 active_patch_size=64,
+                noise_mode=noise_mode,
             )
 
         else:
@@ -305,6 +309,8 @@ def main(**kwargs):
 
     elif opts.overlap_mode == 'independent':
         desc += f'-overlap-independent-center-lam{lambda_tag}-p64'
+    elif opts.overlap_mode == 'same_center':
+        desc += f'-overlap-same-center-lam{lambda_tag}-p64'
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 
@@ -335,8 +341,9 @@ def main(**kwargs):
     dist.print0(f'Preconditioning & loss:  {opts.precond}')
     dist.print0(f'Overlap mode:            {opts.overlap_mode}')
     dist.print0(f'Overlap loss weight:     {opts.lambda_overlap}')
-    if opts.overlap_mode == 'independent':
+    if opts.overlap_mode in ('independent', 'same_center'):
         dist.print0('Active overlap patch:    64')
+        dist.print0(f'OC noise correlation:    {c.loss_kwargs.noise_mode}')
     dist.print0(f'Number of GPUs:          {dist.get_world_size()}')
     dist.print0(f'Batch size:              {c.batch_size}')
     dist.print0(f'Mixed-precision:         {c.network_kwargs.use_fp16}')

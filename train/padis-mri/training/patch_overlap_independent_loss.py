@@ -35,16 +35,27 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
     """仅在指定 patch 尺度上启用独立噪声、中心引导的一致性约束。"""
 
     def __init__(
-        self, P_mean=-1.2, P_std=1.2, sigma_data=0.5,
-        lambda_overlap=1.0, active_patch_size=64,
+            self, P_mean=-1.2, P_std=1.2, sigma_data=0.5,
+            lambda_overlap=1.0, active_patch_size=64,
+            noise_mode='independent',
     ):
-        super().__init__(P_mean=P_mean, P_std=P_std, sigma_data=sigma_data)
+        super().__init__(
+            P_mean=P_mean,
+            P_std=P_std,
+            sigma_data=sigma_data,
+        )
 
         if lambda_overlap < 0:
-            raise ValueError('lambda_overlap 必须大于或等于 0')
+            raise ValueError('lambda_overlap must be >= 0')
+
+        if noise_mode not in ('same', 'independent'):
+            raise ValueError(f'Invalid noise_mode: {noise_mode}')
 
         self.lambda_overlap = float(lambda_overlap)
         self.active_patch_size = int(active_patch_size)
+        self.noise_mode = noise_mode
+
+        print(f'[OC] noise_mode={self.noise_mode}, lambda={self.lambda_overlap}')
 
     def __call__(
         self, net, images, patch_size, resolution,
@@ -82,14 +93,27 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         pos1 = _position_maps(top1, left1, pair_batch, int(patch_size), resolution, images.device)
         pos2 = _position_maps(top2, left2, pair_batch, int(patch_size), resolution, images.device)
 
-        # 两个 patch 共用同一噪声水平 sigma，只让噪声实现相互独立。
-        # 这样主要隔离 patch context 和随机噪声实现带来的预测差异。
-        rnd_normal = torch.randn([pair_batch, 1, 1, 1], device=images.device)
-        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        weight = (sigma.square() + self.sigma_data ** 2) / (sigma * self.sigma_data).square()
+        # 两个Patch使用相同的sigma
+        # sigma和weight的计算保持原样
 
-        noisy1 = clean1 + sigma * torch.randn_like(clean1)
-        noisy2 = clean2 + sigma * torch.randn_like(clean2)
+        if self.noise_mode == 'same':
+            # Same Noise:
+            # 先在完整MRI图像上生成一次噪声
+            # 再裁剪两个重叠Patch
+            noisy_full = clean_full + sigma * torch.randn_like(clean_full)
+
+            noisy1 = _extract_patches(
+                noisy_full, top1, left1, int(patch_size)
+            )
+            noisy2 = _extract_patches(
+                noisy_full, top2, left2, int(patch_size)
+            )
+
+        else:
+            # Independent Noise:
+            # 保持原来的实现完全不变
+            noisy1 = clean1 + sigma * torch.randn_like(clean1)
+            noisy2 = clean2 + sigma * torch.randn_like(clean2)
 
         noisy_pair = torch.cat([noisy1, noisy2], dim=0)
         sigma_pair = torch.cat([sigma, sigma], dim=0)
