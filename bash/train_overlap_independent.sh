@@ -24,23 +24,33 @@ LOG_DIR=$RESULT_ROOT/results_record/logs
 ANATOMY=brain
 SNR=32dB
 
-BATCH_SIZE=2
+BATCH_SIZE=4
 BATCH_GPU=1
 LR=1e-4
 DROPOUT=0.05
 REAL_P=0.5
 PADDING=1
-PAD_WIDTH=96
+PAD_WIDTH=64
 WORKERS=4
 SEED=123
 RESUME_ARGS=()
 RESUME_PATH=${RESUME_PATH:-}
+OC_NOISE_MODE=${OC_NOISE_MODE:-independent}
+
+case "$OC_NOISE_MODE" in
+    independent|same_center)
+        ;;
+    *)
+        echo "Invalid OC_NOISE_MODE=$OC_NOISE_MODE"
+        exit 1
+        ;;
+esac
 case "$VARIANT" in
     control)
         LAMBDA_OVERLAP=0.0
         ;;
     center)
-        LAMBDA_OVERLAP=${LAMBDA_OVERLAP:-0.3}
+        LAMBDA_OVERLAP=${LAMBDA_OVERLAP:-0.5}
         ;;
     *)
         echo "Unknown VARIANT=$VARIANT，必须使用 control 或 center"
@@ -60,7 +70,7 @@ case "$MODE" in
         PATCH_TAG=p64only
         ;;
     overnight)
-        DURATION=8.064
+        DURATION=5
         TICK=5
         SNAP=200
         DUMP=1000
@@ -151,7 +161,7 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun \
     --cond=0 \
     --arch=ddpmpp \
     --precond=pedm \
-    --overlap-mode=independent \
+    --overlap-mode="$OC_NOISE_MODE" \
     --lambda-overlap="$LAMBDA_OVERLAP" \
     --batch="$BATCH_SIZE" \
     --batch-gpu="$BATCH_GPU" \

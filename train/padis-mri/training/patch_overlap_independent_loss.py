@@ -93,8 +93,19 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         pos1 = _position_maps(top1, left1, pair_batch, int(patch_size), resolution, images.device)
         pos2 = _position_maps(top2, left2, pair_batch, int(patch_size), resolution, images.device)
 
-        # 两个Patch使用相同的sigma
-        # sigma和weight的计算保持原样
+        # 两个Patch共享相同的噪声水平 sigma
+        rnd_normal = torch.randn(
+            [pair_batch, 1, 1, 1],
+            device=images.device,
+        )
+
+        sigma = (
+                rnd_normal * self.P_std + self.P_mean
+        ).exp()
+
+        weight = (
+                         sigma.square() + self.sigma_data ** 2
+                 ) / (sigma * self.sigma_data).square()
 
         if self.noise_mode == 'same':
             # Same Noise:
