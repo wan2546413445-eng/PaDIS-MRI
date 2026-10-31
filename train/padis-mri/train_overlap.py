@@ -126,6 +126,23 @@ def parse_float_list(s):
     type=click.Choice(['same', 'diff', 'independent', 'same_center']),
     required=True,
 )
+@click.option(
+    '--overlap-geometry',
+    help='Paired crops: original shifted overlap or identical coordinates',
+    type=click.Choice(['shifted', 'identical']),
+    default='shifted',
+    show_default=True,
+)
+@click.option(
+    '--overlap-spatial-weight',
+    help='Spatial weighting: original distance difference or uniform',
+    type=click.Choice(['distance', 'uniform']),
+    default='distance',
+    show_default=True,
+)
+@click.option('--overlap-alignment', help='Alignment for independent/same_center modes',
+              type=click.Choice(['directional', 'symmetric']),
+              default='directional', show_default=True)
 @click.option('--lambda-overlap', help='Overlap auxiliary loss weight', type=float, default=0.01, show_default=True)
 @click.option('--min-noise-ratio', help='Minimum valid diff-mode noise ratio', type=float, default=1.25,
               show_default=True)
@@ -143,6 +160,41 @@ def main(**kwargs):
         --data=datasets/cifar10-32x32.zip --cond=1 --arch=ddpmpp
     """
     opts = dnnlib.EasyDict(kwargs)
+    if (
+        opts.overlap_geometry != 'shifted'
+        or opts.overlap_spatial_weight != 'distance'
+    ) and (
+        opts.precond != 'pedm'
+        or opts.overlap_mode not in ('independent', 'same_center')
+    ):
+        raise click.ClickException(
+            'Non-default --overlap-geometry/--overlap-spatial-weight '
+            'requires --precond=pedm and '
+            '--overlap-mode=independent or same_center'
+        )
+
+    if opts.overlap_geometry == 'identical':
+        if opts.overlap_spatial_weight != 'uniform':
+            raise click.ClickException(
+                '--overlap-geometry=identical requires '
+                '--overlap-spatial-weight=uniform'
+            )
+
+        if (
+            opts.lambda_overlap > 0
+            and opts.overlap_alignment != 'symmetric'
+        ):
+            raise click.ClickException(
+                '--overlap-geometry=identical with --lambda-overlap>0 '
+                'requires --overlap-alignment=symmetric'
+            )
+    if opts.overlap_alignment != 'directional' and (
+        opts.precond != 'pedm' or opts.overlap_mode not in ('independent', 'same_center')
+    ):
+        raise click.ClickException(
+            '--overlap-alignment=symmetric requires --precond=pedm and '
+            '--overlap-mode=independent or same_center'
+        )
     torch.multiprocessing.set_start_method('spawn')
     dist.init()
 
@@ -238,6 +290,9 @@ def main(**kwargs):
                 lambda_overlap=opts.lambda_overlap,
                 active_patch_size=64,
                 noise_mode=noise_mode,
+                alignment_mode=opts.overlap_alignment,
+                pair_geometry=opts.overlap_geometry,
+                spatial_weight_mode=opts.overlap_spatial_weight,
             )
 
         else:
@@ -311,6 +366,17 @@ def main(**kwargs):
         desc += f'-overlap-independent-center-lam{lambda_tag}-p64'
     elif opts.overlap_mode == 'same_center':
         desc += f'-overlap-same-center-lam{lambda_tag}-p64'
+    if opts.overlap_mode in ('independent', 'same_center'):
+        desc += f'-align-{opts.overlap_alignment}'
+
+        if (
+                opts.overlap_geometry != 'shifted'
+                or opts.overlap_spatial_weight != 'distance'
+        ):
+            desc += (
+                f'-geom-{opts.overlap_geometry}'
+                f'-spatial-{opts.overlap_spatial_weight}'
+            )
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 
@@ -344,6 +410,8 @@ def main(**kwargs):
     if opts.overlap_mode in ('independent', 'same_center'):
         dist.print0('Active overlap patch:    64')
         dist.print0(f'OC noise correlation:    {c.loss_kwargs.noise_mode}')
+        dist.print0(f'OC pair geometry:        {c.loss_kwargs.pair_geometry}')
+        dist.print0(f'OC spatial weight:       {c.loss_kwargs.spatial_weight_mode}')
     dist.print0(f'Number of GPUs:          {dist.get_world_size()}')
     dist.print0(f'Batch size:              {c.batch_size}')
     dist.print0(f'Mixed-precision:         {c.network_kwargs.use_fp16}')

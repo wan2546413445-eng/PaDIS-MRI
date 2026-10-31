@@ -10,7 +10,7 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 # GPU=4 VARIANT=control     /bin/bash bash/train_overlap_independent.sh main
 # GPU=5 VARIANT=center      /bin/bash bash/train_overlap_independent.sh main
 
-GPU=${GPU:-4}
+GPU=${GPU:-0}
 VARIANT=${VARIANT:-center}
 MODE=${1:-debug}
 NPROC=1
@@ -36,6 +36,17 @@ SEED=123
 RESUME_ARGS=()
 RESUME_PATH=${RESUME_PATH:-}
 OC_NOISE_MODE=${OC_NOISE_MODE:-independent}
+OC_PAIR_GEOMETRY=${OC_PAIR_GEOMETRY:-shifted}
+OC_SPATIAL_WEIGHT_MODE=${OC_SPATIAL_WEIGHT_MODE:-distance}
+OC_ALIGNMENT_MODE=${OC_ALIGNMENT_MODE:-directional}
+
+case "$OC_ALIGNMENT_MODE" in
+    directional|symmetric) ;;
+    *)
+        echo "Invalid OC_ALIGNMENT_MODE=$OC_ALIGNMENT_MODE"
+        exit 1
+        ;;
+esac
 
 case "$OC_NOISE_MODE" in
     independent|same_center)
@@ -114,7 +125,13 @@ case "$MODE" in
 esac
 
 LAMBDA_TAG=${LAMBDA_OVERLAP//./p}
-EXP_NAME=overlap_independent_${VARIANT}_lam${LAMBDA_TAG}_active64_bgpu1_${PATCH_TAG}_b2_seed123
+
+EXP_NAME=overlap_${OC_NOISE_MODE}_${VARIANT}_${OC_ALIGNMENT_MODE}_lam${LAMBDA_TAG}_active64_bgpu${BATCH_GPU}_${PATCH_TAG}_b${BATCH_SIZE}_seed${SEED}
+
+if [[ "$OC_PAIR_GEOMETRY" != shifted || "$OC_SPATIAL_WEIGHT_MODE" != distance ]]; then
+    EXP_NAME=${EXP_NAME}_geom${OC_PAIR_GEOMETRY}_spatial${OC_SPATIAL_WEIGHT_MODE}
+fi
+
 RUN_NAME=${MODE}_${EXP_NAME}
 
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
@@ -139,8 +156,12 @@ cd "$CODE_ROOT"
     echo "PATCH_SIZES=$PATCH_SIZES"
     echo "PATCH_PROBS=$PATCH_PROBS"
     echo "SAME_SIGMA=true"
-    echo "INDEPENDENT_NOISE=true"
-    echo "CENTER_TO_BOUNDARY=true"
+    echo "OC_NOISE_MODE=$OC_NOISE_MODE"
+    echo "OC_PAIR_GEOMETRY=$OC_PAIR_GEOMETRY"
+    echo "OC_SPATIAL_WEIGHT_MODE=$OC_SPATIAL_WEIGHT_MODE"
+    echo "OC_ALIGNMENT_MODE=$OC_ALIGNMENT_MODE"
+    echo "INDEPENDENT_NOISE=$([ "$OC_NOISE_MODE" = independent ] && echo true || echo false)"
+    echo "CENTER_TO_BOUNDARY=$([ "$OC_ALIGNMENT_MODE" = directional ] && echo true || echo false)"
     echo "GT_GATE=false"
     echo "NOISE_RATIO_GATE=false"
     echo "OUTDIR=$OUTDIR"
@@ -151,7 +172,7 @@ cd "$CODE_ROOT"
 } | tee "$LOG_FILE"
 
 export PYTHONPATH="$CODE_ROOT/train/padis-mri:${PYTHONPATH:-}"
-
+export WANDB_MODE=disabled
 CUDA_VISIBLE_DEVICES=$GPU torchrun \
     --standalone \
     --nproc_per_node=$NPROC \
@@ -162,6 +183,9 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun \
     --arch=ddpmpp \
     --precond=pedm \
     --overlap-mode="$OC_NOISE_MODE" \
+    --overlap-alignment="$OC_ALIGNMENT_MODE" \
+    --overlap-geometry="$OC_PAIR_GEOMETRY" \
+    --overlap-spatial-weight="$OC_SPATIAL_WEIGHT_MODE" \
     --lambda-overlap="$LAMBDA_OVERLAP" \
     --batch="$BATCH_SIZE" \
     --batch-gpu="$BATCH_GPU" \

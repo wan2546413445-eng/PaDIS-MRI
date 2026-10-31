@@ -8,6 +8,7 @@
     两个重叠 patch 使用相同 sigma、独立高斯噪声；
     更靠近 patch 边界的预测向更靠近 patch 内部的预测学习。
 
+alignment_mode='directional' 保留内部引导边界；'symmetric' 对两侧施加辅助梯度。
 仅在 active_patch_size（默认 64）上启用上述配对训练。
 16×16 和 32×32 分支保持作者原始 Patch_EDMLoss 不变。
 """
@@ -37,7 +38,8 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
     def __init__(
             self, P_mean=-1.2, P_std=1.2, sigma_data=0.5,
             lambda_overlap=1.0, active_patch_size=64,
-            noise_mode='independent',
+            noise_mode='independent', alignment_mode='directional',
+            pair_geometry='shifted', spatial_weight_mode='distance',
     ):
         super().__init__(
             P_mean=P_mean,
@@ -51,12 +53,42 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         if noise_mode not in ('same', 'independent'):
             raise ValueError(f'Invalid noise_mode: {noise_mode}')
 
+        if alignment_mode not in ('directional', 'symmetric'):
+            raise ValueError(f'Invalid alignment_mode: {alignment_mode}')
+
+        if pair_geometry not in ('shifted', 'identical'):
+            raise ValueError(f'Invalid pair_geometry: {pair_geometry}')
+
+        if spatial_weight_mode not in ('distance', 'uniform'):
+            raise ValueError(
+                f'Invalid spatial_weight_mode: {spatial_weight_mode}'
+            )
+
+        if pair_geometry == 'identical':
+            if spatial_weight_mode != 'uniform':
+                raise ValueError(
+                    'identical geometry requires spatial_weight_mode=uniform'
+                )
+            if lambda_overlap > 0 and alignment_mode != 'symmetric':
+                raise ValueError(
+                    'identical geometry with lambda_overlap>0 '
+                    'requires alignment_mode=symmetric'
+                )
+
+        self.alignment_mode = alignment_mode
         self.lambda_overlap = float(lambda_overlap)
         self.active_patch_size = int(active_patch_size)
         self.noise_mode = noise_mode
+        self.pair_geometry = pair_geometry
+        self.spatial_weight_mode = spatial_weight_mode
 
-        print(f'[OC] noise_mode={self.noise_mode}, lambda={self.lambda_overlap}')
-
+        print(
+            f'[OC] noise_mode={self.noise_mode}, '
+            f'alignment_mode={self.alignment_mode}, '
+            f'lambda={self.lambda_overlap}, '
+            f'pair_geometry={self.pair_geometry}, '
+            f'spatial_weight_mode={self.spatial_weight_mode}'
+        )
     def __call__(
         self, net, images, patch_size, resolution,
         labels=None, augment_pipe=None,
@@ -86,6 +118,13 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         # 每张完整图像裁取一对水平或竖直半 patch 平移的重叠 patch。
         top1, left1, top2, left2, horizontal, overlap = _sample_overlap_geometry(
             clean_full, int(patch_size))
+
+        # 默认沿用原来的错位裁剪。
+        pair_geometry = getattr(self, 'pair_geometry', 'shifted')
+
+        if pair_geometry == 'identical':
+            # 第二个 Patch 使用第一个 Patch 的裁剪坐标。
+            top2, left2 = top1, left1
 
         clean1 = _extract_patches(clean_full, top1, left1, int(patch_size))
         clean2 = _extract_patches(clean_full, top2, left2, int(patch_size))
@@ -152,22 +191,59 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             training_stats.report('Loss/overlap_center_weighted', zero)
             training_stats.report('Loss/overlap_center_ratio', zero)
             return edm_loss
-        # 提取两个预测中对应同一物理位置的 overlap 区域。
-        D1_overlap, D2_overlap = _overlap_views(D1, D2, horizontal, overlap)
-        # d1、d2 表示同一物理像素在两个 patch 中到最近边界的距离。
-        # 距离更大的视角被视为内部预测，另一个被视为边界预测。
-        d1, d2 = _boundary_distances(horizontal, int(patch_size), overlap, images.device, images.dtype)
-        interior_is_1 = d1 >= d2
-        D_interior = torch.where(interior_is_1, D1_overlap, D2_overlap)
-        D_boundary = torch.where(interior_is_1, D2_overlap, D1_overlap)
-        # 距离差越大，内部/边界差异越明确，辅助权重越大。按每个 pair 的平均值归一化，使 confidence 的平均值约为 1，
-        # 避免空间权重把辅助损失整体再次压小。
-        confidence_raw = (d1 - d2).abs()
-        confidence_mean = confidence_raw.mean(dim=(1, 2, 3), keepdim=True)
-        confidence = confidence_raw / confidence_mean.clamp_min(1e-12)
-        # 仅更新边界预测。D_interior.detach() 作为固定参考，
-        # 避免较不可靠的边界预测反向拖动内部预测。
-        aux_pixel = weight * confidence * (D_boundary - D_interior.detach()).square()
+        if pair_geometry == 'identical':
+            # 完全重合：整块都对应同一物理位置。
+            D1_overlap, D2_overlap = D1, D2
+
+            # 仅沿用变量名，实际没有几何上的内部/边界之分。
+            D_interior, D_boundary = D1_overlap, D2_overlap
+
+        else:
+            # 原来的错位重叠分支。
+            D1_overlap, D2_overlap = _overlap_views(
+                D1, D2, horizontal, overlap
+            )
+
+            d1, d2 = _boundary_distances(
+                horizontal,
+                int(patch_size),
+                overlap,
+                images.device,
+                images.dtype,
+            )
+
+            interior_is_1 = d1 >= d2
+
+            D_interior = torch.where(
+                interior_is_1, D1_overlap, D2_overlap
+            )
+            D_boundary = torch.where(
+                interior_is_1, D2_overlap, D1_overlap
+            )
+
+        if getattr(self, 'spatial_weight_mode', 'distance') == 'uniform':
+            # 只把空间权重设为1，保留 EDM 的噪声水平权重。
+            confidence = torch.ones_like(D1_overlap[:, :1])
+
+        else:
+            # 原来的距离差权重。
+            confidence_raw = (d1 - d2).abs()
+            confidence_mean = confidence_raw.mean(
+                dim=(1, 2, 3), keepdim=True
+            )
+            confidence = (
+                confidence_raw / confidence_mean.clamp_min(1e-12)
+            )
+        # 新增开关不改变双 GT、噪声模式及损失归约；空间权重由配置选择。
+        # getattr 兼容未保存 alignment_mode 的旧 loss 对象。
+        if getattr(self, 'alignment_mode', 'directional') == 'directional':
+            # 单向：Interior 作为停止梯度的参考，仅 Boundary 接受辅助梯度。
+            aux_pixel = weight * confidence * (D_boundary - D_interior.detach()).square()
+        else:
+            # 双向：两侧均接受辅助梯度，采用 0.5 系数归一化。
+            aux_pixel = 0.5 * weight * confidence * (
+                D_boundary - D_interior
+            ).square()
 
         # 每个 pair 先在通道和 overlap 空间上求平均，再扩展为 loss map。training_loop 会对返回张量执行 loss.sum()，这种写法使 ratio
         # 可直接表示辅助项相对于平均 EDM loss 的实际强度。
