@@ -29,6 +29,7 @@ PATCH_SIZES=${PATCH_SIZES:-16,32,64}
 PATCH_PROBS=${PATCH_PROBS:-0.2,0.3,0.5}
 AGG_RHO=${AGG_RHO:-0.65}
 AGG_GAMMA=${AGG_GAMMA:-1.0}
+AGG_SCORE_MODE=${AGG_SCORE_MODE:-multiply}
 
 BATCH_SIZE=${BATCH_SIZE:-4}
 BATCH_GPU=${BATCH_GPU:-1}
@@ -39,7 +40,7 @@ PAD_WIDTH=${PAD_WIDTH:-64}
 WORKERS=${WORKERS:-4}
 
 SMOKE_MIMG=${SMOKE_MIMG:-0.01}  # 0.01 Mimg = 10 kimg.
-TRAIN_MIMG=${TRAIN_MIMG:-10}     # 10 Mimg = 10000 kimg.
+TRAIN_MIMG=${TRAIN_MIMG:-5}     # 10 Mimg = 10000 kimg.
 PAIRED_MIMG=${PAIRED_MIMG:-10}   # Match the formal single-patch run.
 AUDIT_IMAGES=${AUDIT_IMAGES:-8}
 AUDIT_DRAWS=${AUDIT_DRAWS:-200}
@@ -52,7 +53,7 @@ if [[ "$MODE" == "paired" ]]; then
     RUN_NAME=agg_paired_control_rho${RHO_TAG}_gamma${GAMMA_TAG}_oc0_pad${PAD_WIDTH}_seed${SEED}
 else
     ROOT_OUTDIR=$RESULT_ROOT/PaDIS-MRI-runs/agg_simplified_single_training-runs
-    RUN_NAME=agg_single_rho${RHO_TAG}_gamma${GAMMA_TAG}_pad${PAD_WIDTH}_seed${SEED}_${MODE}
+    RUN_NAME=agg_single_${AGG_SCORE_MODE}_rho${RHO_TAG}_gamma${GAMMA_TAG}_pad${PAD_WIDTH}_seed${SEED}_${MODE}
 fi
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
 DATA_PATH=${DATA_PATH:-$ROOT_DATA/$SNR}
@@ -104,17 +105,17 @@ fi
 if [[ "$MODE" == "smoke" ]]; then
     DURATION_MIMG=$SMOKE_MIMG
     ENTRY_POINT=train/padis-mri/train_agg_simplified.py
-    MODE_ARGS=()
+    MODE_ARGS=(--agg-score-mode="$AGG_SCORE_MODE")
     TICK=${TICK:-1}
     SNAP=${SNAP:-5}
     DUMP=${DUMP:-10}
 elif [[ "$MODE" == "train" ]]; then
     DURATION_MIMG=$TRAIN_MIMG
     ENTRY_POINT=train/padis-mri/train_agg_simplified.py
-    MODE_ARGS=()
-    TICK=${TICK:-100}
-    SNAP=${SNAP:-10}
-    DUMP=${DUMP:-10}
+    MODE_ARGS=(--agg-score-mode="$AGG_SCORE_MODE")
+    TICK=${TICK:-5}
+    SNAP=${SNAP:-200}
+    DUMP=${DUMP:-1000}
 elif [[ "$MODE" == "paired" ]]; then
     DURATION_MIMG=$PAIRED_MIMG
     ENTRY_POINT=train/padis-mri/train_overlap_agg_v2.py
@@ -139,7 +140,7 @@ fi
     echo "PaDIS-MRI AGG ablation training"
     echo "MODE=$MODE GPU=$GPU SEED=$SEED DURATION_MIMG=$DURATION_MIMG"
     echo "PATCH_SIZES=$PATCH_SIZES PATCH_PROBS=$PATCH_PROBS"
-    echo "AGG_RHO=$AGG_RHO AGG_GAMMA=$AGG_GAMMA"
+    echo "AGG_SCORE_MODE=$AGG_SCORE_MODE AGG_RHO=$AGG_RHO AGG_GAMMA=$AGG_GAMMA"
     echo "OUTDIR=$OUTDIR"
     echo "DATA_PATH=$DATA_PATH"
 } | tee "$LOG_FILE"

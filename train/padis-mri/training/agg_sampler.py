@@ -65,7 +65,10 @@ def _sampling_probabilities(score, rho):
     return (1.0 - rho) * uniform + rho * guided
 
 
-def _region_score(support, gradient, kernel_size, gamma):
+def _region_score(
+    support, gradient, kernel_size, gamma,
+    score_mode='multiply',
+):
     """Compute S(u)=A(u)[1+gamma*G(u)] for candidate regions."""
     anatomy = F.avg_pool2d(
         support[None, None], kernel_size=kernel_size, stride=1
@@ -74,10 +77,16 @@ def _region_score(support, gradient, kernel_size, gamma):
         gradient[None, None], kernel_size=kernel_size, stride=1
     )[0, 0]
     gradient_normalized = _normalize_candidate_gradient(gradient_mean)
-    return anatomy * (1.0 + gamma * gradient_normalized)
+    if score_mode == 'add':
+        return anatomy + gamma * gradient_normalized
+    else:
+        return anatomy * (1.0 + gamma * gradient_normalized)
 
 
-def sample_single_locations(images, patch_size, rho, gamma):
+def sample_single_locations(
+    images, patch_size, rho, gamma,
+    score_mode='multiply',
+):
     """Sample one patch location per image from the AGG mixture."""
     patch_size = int(patch_size)
     batch, _, height, width = images.shape
@@ -98,7 +107,11 @@ def sample_single_locations(images, patch_size, rho, gamma):
         else:
             support, gradient = maps
             score = _region_score(
-                support, gradient, (patch_size, patch_size), gamma
+                support,
+                gradient,
+                (patch_size, patch_size),
+                gamma,
+                score_mode=score_mode,
             )
             probabilities = _sampling_probabilities(score, rho)
             flat_index = torch.multinomial(probabilities, 1)[0]

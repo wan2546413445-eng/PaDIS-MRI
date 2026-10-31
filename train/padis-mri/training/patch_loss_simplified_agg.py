@@ -29,6 +29,7 @@ class SimplifiedAggPatchEDMLoss(Patch_EDMLoss):
         sigma_data=0.5,
         agg_rho=0.65,
         agg_gamma=1.0,
+        agg_score_mode='multiply',
     ):
         super().__init__(P_mean=P_mean, P_std=P_std, sigma_data=sigma_data)
         if not 0.0 <= agg_rho <= 1.0:
@@ -38,11 +39,13 @@ class SimplifiedAggPatchEDMLoss(Patch_EDMLoss):
 
         self.agg_rho = float(agg_rho)
         self.agg_gamma = float(agg_gamma)
+        self.agg_score_mode = agg_score_mode
 
         print(
             '[SimplifiedAggPatchEDMLoss] '
             f'rho={self.agg_rho}, gamma={self.agg_gamma}, '
             'patches_per_source=1'
+            f'score_mode={self.agg_score_mode}, '
         )
 
     def pachify(self, images, patch_size, padding=None):
@@ -67,6 +70,7 @@ class SimplifiedAggPatchEDMLoss(Patch_EDMLoss):
             int(patch_size),
             self.agg_rho,
             self.agg_gamma,
+            score_mode=self.agg_score_mode,
         )
         patches = _extract_patches(
             padded, top, left, int(patch_size)

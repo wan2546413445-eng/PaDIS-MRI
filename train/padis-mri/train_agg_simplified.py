@@ -328,6 +328,7 @@ def run_sampler_audit(
               type=click.FloatRange(min=0, max=1), default=0.65, show_default=True)
 @click.option('--agg-gamma', help='Gradient contribution in the AGG score',
               type=click.FloatRange(min=0), default=1.0, show_default=True)
+@click.option('--agg-score-mode',type=click.Choice(['multiply', 'add']),default='multiply',show_default=True,)
 @click.option('--sampler-audit-dir', help='Write sampler audit JSON and heatmaps, then exit',
               metavar='DIR', type=str)
 @click.option('--sampler-audit-images', help='Number of dataset images used by sampler audit',
@@ -447,6 +448,7 @@ def main(**kwargs):
             sigma_data=0.5,
             agg_rho=opts.agg_rho,
             agg_gamma=opts.agg_gamma,
+            agg_score_mode=opts.agg_score_mode,
         )
 
     else:
@@ -508,6 +510,7 @@ def main(**kwargs):
     desc += (
         f'-agg-single-rho{rho_tag}'
         f'-gamma{gamma_tag}'
+        f'-score-{opts.agg_score_mode}'
     )
     if opts.desc is not None:
         desc += f'-{opts.desc}'
