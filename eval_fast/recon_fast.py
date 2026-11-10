@@ -1,4 +1,5 @@
 from copy import copy
+from math import sqrt
 
 import numpy as np
 import torch
@@ -51,6 +52,65 @@ def _cg_correction(
         if precision is not None:
             counts["precision_applies"] += cg_iters
     return delta
+
+
+@torch.no_grad()
+def reconstruct_ct_cg_ddim(
+    net, latents_pos, inverseop, measurement, *,
+    num_steps, inner_loops, pad, psize, ddim_eta, cg_lambda, cg_iters,
+    cg_gain=1.0, counts=None, profile=None,
+):
+    from denoise_padding import denoisedFromPatches, getIndices
+    from recon import _ve_base_schedule
+
+    adjoint_y = inverseop.adjoint(measurement)
+    width = adjoint_y.shape[-1]
+    fov = slice(pad, pad + width)
+    padding = (pad, pad, pad, pad)
+    x = F.pad(adjoint_y, padding)
+    patches = width // psize + 1
+    spaced = np.arange(patches) * psize
+    schedule = _ve_base_schedule(net, num_steps, 0.003, 10.0, 7.0, x.device).float()
+    x = x + schedule[0] * torch.randn_like(x)
+    epsilon_scale = sqrt(inner_loops)
+    carry_weight = sqrt(1 - ddim_eta ** 2)
+
+    levels = zip(schedule[:-1], schedule[1:])
+    for outer, (sigma, sigma_next) in enumerate(tqdm(levels, total=num_steps, desc="ct_cg_ddim")):
+        prediction_sum = torch.zeros_like(x)
+        epsilon_sum = torch.zeros_like(x)
+        for inner in range(inner_loops):
+            start = profile.begin() if profile else None
+            indices = getIndices(spaced, patches, pad, psize)
+            denoised = denoisedFromPatches(
+                net, _channels(x), sigma, latents_pos, None, indices, t_goal=0, wrong=False,
+            )
+            if profile:
+                profile.end("denoise", start)
+            if counts is not None:
+                counts["main_denoise"] += 1
+
+            prediction = torch.complex(denoised[:, 0], denoised[:, 1]).unsqueeze(1)
+            prediction_sum.add_(prediction)
+            epsilon_sum.add_((x - prediction) / sigma)
+            if inner + 1 < inner_loops:
+                # 从本轮干净估计恢复当前噪声水平，供下一轮换网格去噪。
+                x = prediction + sigma * torch.randn_like(prediction)
+
+        # MRI 测量算子定义在真实 FOV 上，先裁掉分块用的 padding 再做 CG。
+        v = prediction_sum[:, :, fov, fov] / inner_loops
+        delta = _cg_correction(
+            inverseop, adjoint_y, v, cg_lambda, cg_iters, counts=counts, profile=profile,
+        )
+        v_dc = v + cg_gain * delta
+        if outer + 1 < num_steps:
+            # 下一层以测量修正后的干净估计为起点，噪声仍由 CG 前的各轮预测融合。
+            epsilon = carry_weight * (epsilon_sum / epsilon_scale)
+            if ddim_eta:
+                epsilon = epsilon + ddim_eta * torch.randn_like(epsilon)
+            x = F.pad(v_dc, padding) + sigma_next * epsilon
+
+    return v_dc.squeeze(1)
 
 
 @torch.no_grad()

@@ -131,10 +131,8 @@ class FHPrecision:
 class FHProfile:
     """CUDA intervals, read only after the enclosing reconstruction synchronizes."""
 
-    def __init__(self):
-        self.events = {name: [] for name in (
-            "probe_forward", "covariance_update", "cg_total", "cg_precision",
-        )}
+    def __init__(self, sections=("probe_forward", "covariance_update", "cg_total", "cg_precision")):
+        self.events = {name: [] for name in sections}
 
     def begin(self):
         event = torch.cuda.Event(enable_timing=True)

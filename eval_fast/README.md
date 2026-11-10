@@ -1,11 +1,63 @@
-# PaDIS-MRI FH 混合采样
+# PaDIS-MRI 快速重建对照
 
-在服务器的 PaDIS-MRI `main-WSY` 仓库根目录解压 `eval_fast_fh_v3.zip`，继续使用现有 PaDIS 环境和 BART 配置。入口仍是 `eval_fast/run.py`，复用项目的 `eval/evaluator_fixed_seed123.py`、`eval/recon.py`、`eval/inverse_operators.py` 和 `eval/denoise_padding.py`。基准代码来自原 `eval_fast.zip`。
+## CT-CG-DDIM 首轮实验
+
+在 PaDIS-MRI `main-WSY` 仓库根目录解压 `eval_fast_ct_cg_ddim.zip`。此包基于提交 `72b18b48cbfca1d689b768de2d726e16321fd962`，包含运行入口、采样器、FH 精度与诊断模块，以及 PaDIS-MRI 和 Free Hunch 的许可证。
+
+目标仓库提供 `eval/evaluator_fixed_seed123.py`、`eval/recon.py`、`eval/denoise_padding.py`、`eval/inverse_operators.py`、`eval/utils.py`、`dnnlib/`、`torch_utils/` 和 `train/padis-mri/`。沿用服务器上可运行现有 PaDIS 推理的 Python 环境、PyTorch/CUDA 与 BART 配置。评估依赖包括 NumPy、SigPy、scikit-image、Matplotlib、Pillow、SciPy、Diffusers、Click 和 tqdm。运行实验需要现有 OPA EMA checkpoint 和带 `mask_7` 的 T1-FLAIR 验证样本。
+
+采样流程参考 [Yang 等人的 Algorithm 1 与表 5](https://arxiv.org/html/2512.18161v1#S3.SS2)。在 PaDIS 的 VE 调度上，同层完成两轮分块去噪，融合后在真实 FOV 做一次各向同性 CG，再从 CG 修正后的干净估计进入下一层。默认 `steps=200`、`inner_loops=2`、`ddim_eta=0.8`。首轮 MRI 参数为 `cg_lambda=0.1`、`cg_iters=5`、`cg_gain=1.0`。checkpoint 目录中的 `lam2p0` 对应报告中的 OPA 权重 λ=1.0。
 
 ```bash
 cd /mnt/SSD/wsy/projects/PaDIS-MRI-main
-unzip -o /path/to/eval_fast_fh_v3.zip
+unzip -o /path/to/eval_fast_ct_cg_ddim.zip
+export CUDA_VISIBLE_DEVICES="${GPU:-2}"
+export MPLBACKEND=Agg
+export PYTHONPATH="$PWD:$PWD/train/padis-mri:$PWD/eval${PYTHONPATH:+:$PYTHONPATH}"
+export PADIS_PATCH_BATCH="${PADIS_PATCH_BATCH:-49}" PADIS_PATCH_CHECKPOINT=0
+
+RUNS=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/overlap_independent_training-runs/brain/32dB
+RUN=overnight_overlap_independent_center_symmetric_lam2p0_active64_bgpu1_s16s32s64_p020305_b4_seed123_geomidentical_spatialuniform
+MODEL="$RUNS/$RUN/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch4-fp32-overlap-independent-center-lam2p0-p64-align-symmetric-geom-identical-spatial-uniform/network-snapshot-005000.pkl"
+VAL=/mnt/SSD2/wsy/brain_multicoil/fastmri_3T_eval/val_t1-flair_subsamp/32dB
+OUT=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/new_data/eval_fast_OPA_lam2p0_T1FLAIR_R7_ct_cg_ddim_s200x2_seed123_19_26
+
+python -u eval_fast/run.py --mode ct_cg_ddim \
+  --model_path "$MODEL" --val_dir "$VAL" --save_dir "$OUT" \
+  --sample_indices 19,26 --image_size 384 --mask_select 7 --seed 123 --pad 64 --psize 64 \
+  --steps 200 --inner_loops 2 --ddim_eta 0.8 --cg_lambda 0.1 --cg_iters 5 --cg_gain 1.0
 ```
+
+两张图分别重置 seed 123。重复实验时为 `OUT` 指定新目录。可用 `python eval_fast/smoke_ct_cg_ddim.py` 在 CPU 上检查两层两轮的调用顺序、跨层状态和末层返回。
+
+运行结束后核对实际操作计数和全图结果。
+
+```bash
+python - "$OUT/evaluate" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+operations = json.loads((root / "config.json").read_text())["operations_per_sample"]
+timing = json.loads((root / "timing.json").read_text())["recon_seconds_per_sample"]
+metrics = json.loads((root / "comp_plots/results.json").read_text())["per_image"]
+for sample in ("19", "26"):
+    counts = operations[sample]
+    assert (counts["main_denoise"], counts["cg_solves"], counts["dps_backprops"]) == (400, 200, 0), counts
+    assert counts["cg_iterations"] == 1000, counts
+    assert (root / "recons" / f"recon_patch_{sample}.npy").is_file()
+    print(f"sample {sample} | 400/200/0 | {timing[sample]:.2f} s | {metrics[sample]}")
+PY
+```
+
+全图 PSNR、SSIM 和 NRMSE 沿用 `post_eval_normalize` 的 ACS-99 归一化口径。19 号将 `recon_patch_19.npy` 送入既有 MATLAB ROI 流程，使用相同 GT、归一化和 ROI mask 做前景对照。26 号用 `timing.json` 的单张实测时间判断是否接近 100 秒。总时间从重建调用前到 CUDA 同步后，权重加载、样本 I/O、结果写盘和指标计算在计时范围外。
+
+比较纯 DPS、旧 Hybrid 和新模式时固定 GPU、权重、输入、patch batching、checkpointing 与计时范围，按整套采样配置报告质量和速度。首轮比较保持 profiling 关闭。如需拆分耗时，另跑一次并加 `--profile_ct`，`timing.json` 的 `gpu_seconds_per_sample` 记录分块去噪（含切拼）和 CG 求解的 CUDA event 时间。每张图同步后统一汇总。
+
+## FH 混合采样
+
+FH 对照沿用原 v3 的命令和缓存。若需从头生成 FH 训练缓存，从原 `eval_fast_fh_v3.zip` 取 `tools/build_fh_covariance.py`。配对启动脚本 `bash/eval_fast_fh_T1FLAIR_R7_paired.sh` 由目标仓库提供。
 
 | R7 组别 | 第 1–39 层 | 第 40–78 层 |
 | --- | --- | --- |

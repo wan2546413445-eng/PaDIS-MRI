@@ -10,7 +10,9 @@ from time import perf_counter
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Compare PaDIS DPS and image-space CG")
-    parser.add_argument("--mode", required=True, choices=["dps", "cg_each", "cg_layer", "hybrid"])
+    parser.add_argument(
+        "--mode", required=True, choices=["dps", "cg_each", "cg_layer", "hybrid", "ct_cg_ddim"],
+    )
     parser.add_argument("--model_path", required=True)
     parser.add_argument("--val_dir", required=True)
     parser.add_argument("--save_dir", required=True)
@@ -20,8 +22,16 @@ def parse_args():
     parser.add_argument("--pad", type=int, default=64)
     parser.add_argument("--psize", type=int, default=64)
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--steps", type=int, default=78)
-    parser.add_argument("--inner_loops", type=int, default=10)
+    parser.add_argument("--steps", type=int, help="Noise levels (default: 200 for ct_cg_ddim, 78 otherwise).")
+    parser.add_argument("--inner_loops", type=int, help="Sweeps per level (default: 2 for ct_cg_ddim, 10 otherwise).")
+    parser.add_argument(
+        "--ddim_eta", type=float, default=argparse.SUPPRESS,
+        help="Cross-level noise mixing for ct_cg_ddim in [0, 1] (default: 0.8).",
+    )
+    parser.add_argument(
+        "--profile_ct", action="store_true", default=argparse.SUPPRESS,
+        help="Record patch denoising and CG CUDA intervals for ct_cg_ddim.",
+    )
     parser.add_argument("--zeta", type=float, default=3.0)
     parser.add_argument("--cg_lambda", type=float, default=0.1)
     parser.add_argument("--cg_iters", type=int, default=5)
@@ -46,6 +56,23 @@ def parse_args():
         help="Number of final noise levels that use DPS in hybrid mode.",
     )
     args = parser.parse_args()
+    is_ct = args.mode == "ct_cg_ddim"
+    if args.steps is None:
+        args.steps = 200 if is_ct else 78
+    if args.inner_loops is None:
+        args.inner_loops = 2 if is_ct else 10
+    if is_ct:
+        args.ddim_eta = getattr(args, "ddim_eta", 0.8)
+        args.profile_ct = getattr(args, "profile_ct", False)
+        if not 0 <= args.ddim_eta <= 1:
+            parser.error("--ddim_eta must be in [0, 1].")
+        if args.image_size < 1 or args.psize < 1 or args.pad < 1:
+            parser.error("ct_cg_ddim needs positive image_size, psize, and pad.")
+        grid_width = (args.image_size // args.psize + 1) * args.psize
+        if not args.image_size + args.pad <= grid_width <= args.image_size + args.pad + 1:
+            parser.error("ct_cg_ddim needs a patch grid that covers the FOV at every offset and fits in the padding.")
+    elif hasattr(args, "ddim_eta") or hasattr(args, "profile_ct"):
+        parser.error("--ddim_eta and --profile_ct require --mode ct_cg_ddim.")
     if args.cg_gain is None:
         args.cg_gain = 0.1 if args.mode == "hybrid" else 1.0
     if args.steps < 2 or args.inner_loops < 1:
@@ -92,7 +119,7 @@ def main():
     from evaluator_fixed_seed123 import DPSHyperEvaluator
     from eval_fast.fh_covariance import FHProfile, load_fh_cache
     from eval_fast.fh_diagnostics import FHDiagnostics
-    from eval_fast.recon_fast import reconstruct
+    from eval_fast.recon_fast import reconstruct, reconstruct_ct_cg_ddim
     from utils import post_eval_normalize
 
     if not torch.cuda.is_available():
@@ -127,6 +154,7 @@ def main():
         "cg_each": updates,
         "cg_layer": args.steps,
         "hybrid": (args.steps - dps_steps) * args.inner_loops,
+        "ct_cg_ddim": args.steps,
     }
     config = {
         **vars(args),
@@ -146,6 +174,7 @@ def main():
     elapsed = {}
     operations = {}
     gpu_profiles = {}
+    profile_ct = args.mode == "ct_cg_ddim" and args.profile_ct
     for index in evaluator.val_indices:
         evaluator._set_sample_seed(idx=index, gpu_id=0)
         evaluator._reset_sample_latent(gpu_id=0)
@@ -155,7 +184,11 @@ def main():
             "cg_iterations", "precision_applies", "covariance_transfers",
             "bfgs_accepted", "bfgs_skipped",
         ), 0)
-        profile = FHProfile() if args.profile_fh else None
+        profile = None
+        if args.profile_fh:
+            profile = FHProfile()
+        elif profile_ct:
+            profile = FHProfile(sections=("denoise", "cg_total"))
         diagnostics = FHDiagnostics(args.steps - dps_steps) if args.diagnose_fh else None
         torch.cuda.synchronize()
         start = perf_counter()
@@ -167,6 +200,14 @@ def main():
             )[0]
             # The original DPS wrapper performs one sweep and backward per update.
             counts["main_denoise"] = counts["dps_backprops"] = updates
+        elif args.mode == "ct_cg_ddim":
+            recon = reconstruct_ct_cg_ddim(
+                model, evaluator.latents_pos, inverseop, measurement,
+                num_steps=args.steps, inner_loops=args.inner_loops,
+                pad=args.pad, psize=args.psize, ddim_eta=args.ddim_eta,
+                cg_lambda=args.cg_lambda, cg_iters=args.cg_iters, cg_gain=args.cg_gain,
+                counts=counts, profile=profile,
+            )
         else:
             recon = reconstruct(
                 model, evaluator.latents_pos, inverseop, measurement,
@@ -196,6 +237,8 @@ def main():
         "recon_seconds_per_sample": elapsed,
         "mean_recon_seconds": sum(elapsed.values()) / len(elapsed),
     }
+    if profile_ct:
+        timing["gpu_seconds_per_sample"] = gpu_profiles
     (output / "timing.json").write_text(json.dumps(timing, indent=2) + "\n")
     config["operations_per_sample"] = operations
     (output / "config.json").write_text(json.dumps(config, indent=2) + "\n")
