@@ -18,8 +18,8 @@ def _batch_scale(scale: torch.Tensor, ndim: int) -> torch.Tensor:
 @torch.no_grad()
 def update_reference(
     reference: Optional[torch.Tensor],
-    denoised_fov: torch.Tensor,
-    reference_mode: str,
+    denoised_fov: torch.Tensor,#当前内循环网络输出的去噪预测
+    reference_mode: str,#之前内循环预测所构建的历史参考
     ema_beta: float,
 ) -> torch.Tensor:
     """Aggregate detached denoiser predictions within the current outer step."""
