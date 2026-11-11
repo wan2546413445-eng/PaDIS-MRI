@@ -13,6 +13,34 @@ def _channels(image):
     return torch.view_as_real(image.squeeze(1)).permute(0, 3, 1, 2)
 
 
+def _dps_update(
+    net, x, sigma, alpha, latents_pos, inverseop, measurement, indices, fov, zeta, add_noise,
+):
+    from denoise_padding import denoisedFromPatches
+
+    with torch.set_grad_enabled(True):
+        x = x.detach().requires_grad_(True)
+        x_noisy = x + sigma * torch.randn_like(x)
+        denoised = denoisedFromPatches(
+            net, _channels(x_noisy), sigma, latents_pos, None, indices,
+            t_goal=0, wrong=False,
+        )
+        cropped = denoised[:, :, fov, fov]
+        residual = measurement - inverseop.forward(cropped)
+        sse = torch.norm(residual.flatten(1), dim=-1) ** 2
+        likelihood_grad = torch.autograd.grad(sse.sum(), x)[0]
+
+    prediction = torch.complex(denoised[:, 0], denoised[:, 1]).unsqueeze(1)
+    score = (prediction - x_noisy) / sigma ** 2
+    prediction_fov = prediction[:, :, fov, fov]
+    residual_norm = sse.clamp_min(torch.finfo(sse.dtype).tiny).sqrt()
+    x = x - (zeta / residual_norm[:, None, None, None]) * likelihood_grad
+    x = x + (alpha / 2) * score
+    if add_noise:
+        x = x + torch.sqrt(alpha) * torch.randn_like(x)
+    return x, prediction_fov
+
+
 def _cg_correction(
     inverseop, adjoint_y, prediction, cg_lambda, cg_iters, *,
     precision=None, noise_var=None, counts=None, profile=None,
@@ -58,7 +86,7 @@ def _cg_correction(
 def reconstruct_ct_cg_ddim(
     net, latents_pos, inverseop, measurement, *,
     num_steps, inner_loops, pad, psize, ddim_eta, cg_lambda, cg_iters,
-    cg_gain=1.0, counts=None, profile=None,
+    cg_gain=1.0, counts=None, profile=None, diagnostics=None,
 ):
     from denoise_padding import denoisedFromPatches, getIndices
     from recon import _ve_base_schedule
@@ -103,6 +131,8 @@ def reconstruct_ct_cg_ddim(
             inverseop, adjoint_y, v, cg_lambda, cg_iters, counts=counts, profile=profile,
         )
         v_dc = v + cg_gain * delta
+        if diagnostics is not None and outer + 1 == num_steps:
+            diagnostics["pre_last_cg"] = v.squeeze(1).detach().cpu()
         if outer + 1 < num_steps:
             # 下一层以测量修正后的干净估计为起点，噪声仍由 CG 前的各轮预测融合。
             epsilon = carry_weight * (epsilon_sum / epsilon_scale)
@@ -112,6 +142,110 @@ def reconstruct_ct_cg_ddim(
 
     return v_dc.squeeze(1)
 
+
+@torch.no_grad()
+def reconstruct_mri_recurrent_cg(
+    net, latents_pos, inverseop, measurement, *,
+    num_steps, recurrent_branches, pad, psize, ddim_eta, cg_lambda, cg_iters, cg_gain,
+    counts, recurrent_depth=2, profile=None, diagnostics=None,
+    dps_tail_steps=0, dps_inner_loops=10, zeta=3.0,
+):
+    from denoise_padding import denoisedFromPatches, getIndices
+    from recon import _ve_base_schedule
+
+    adjoint_y = inverseop.adjoint(measurement)
+    width = adjoint_y.shape[-1]
+    fov = slice(pad, pad + width)
+    padding = (pad,) * 4
+    x = F.pad(adjoint_y, padding)
+    patches = width // psize + 1
+    spaced = np.arange(patches) * psize
+    schedule = _ve_base_schedule(net, num_steps, 0.003, 10.0, 7.0, x.device).float()
+    x = x + schedule[0] * torch.randn_like(x)
+    carry_weight = sqrt(1 - ddim_eta ** 2)
+
+    split = num_steps - dps_tail_steps
+    levels = zip(schedule[:split], schedule[1:split + 1])
+    stage = "mri_recurrent_hybrid CG" if dps_tail_steps else "mri_recurrent_cg"
+    for outer, (sigma, sigma_next) in enumerate(tqdm(levels, total=split, desc=stage)):
+        last_recurrent = outer + 1 == split
+        prediction_sum = torch.zeros_like(x)
+        epsilon_sum = torch.zeros_like(x)
+        for branch in range(recurrent_branches):
+            # 每个分支从同一带噪状态开始，中间轮用于同层重加噪。
+            branch_x = x
+            for sweep in range(recurrent_depth):
+                start = profile.begin() if profile else None
+                indices = getIndices(spaced, patches, pad, psize)
+                denoised = denoisedFromPatches(
+                    net, _channels(branch_x), sigma, latents_pos, None, indices,
+                    t_goal=0, wrong=False,
+                )
+                if profile:
+                    profile.end("denoise", start)
+                counts["main_denoise"] += 1
+
+                start = profile.begin() if profile else None
+                prediction = torch.complex(denoised[:, 0], denoised[:, 1]).unsqueeze(1)
+                if sweep + 1 < recurrent_depth:
+                    branch_x = prediction + sigma * torch.randn_like(prediction)
+                else:
+                    prediction_sum.add_(prediction)
+                    epsilon_sum.add_((branch_x - prediction) / sigma)
+                if profile:
+                    profile.end("recurrent_fusion", start)
+                if last_recurrent and diagnostics is not None:
+                    diagnostics[f"branch_{branch + 1}_round_{sweep + 1}"] = prediction[:, 0, fov, fov]
+
+        start = profile.begin() if profile else None
+        # 多线圈测量算子定义在真实 FOV 内。
+        average = prediction_sum[:, :, fov, fov] / recurrent_branches
+        epsilon = epsilon_sum / recurrent_branches
+        if profile:
+            profile.end("recurrent_fusion", start)
+
+        if not last_recurrent or dps_tail_steps:
+            delta = _cg_correction(
+                inverseop, adjoint_y, average, cg_lambda, cg_iters, counts=counts, profile=profile,
+            )
+            corrected = average + cg_gain * delta
+            if last_recurrent:
+                # DPS 会自行加当前层噪声，交接时只传干净的 CG 修正图。
+                x = F.pad(corrected, padding)
+                if diagnostics is not None:
+                    diagnostics["recurrent_terminal"] = average.squeeze(1)
+                    diagnostics["recurrent_after_cg"] = corrected.squeeze(1)
+                continue
+            start = profile.begin() if profile else None
+            # CG 修正干净图，跨层噪声仍取自去噪器的预测残差。
+            epsilon = carry_weight * epsilon
+            if ddim_eta:
+                epsilon = epsilon + ddim_eta * torch.randn_like(epsilon)
+            x = F.pad(corrected, padding) + sigma_next * epsilon
+            if profile:
+                profile.end("ve_ddim", start)
+
+    if dps_tail_steps:
+        counts["recurrent_main_denoise"] = counts["main_denoise"]
+        for outer, sigma in enumerate(tqdm(schedule[split:-1], desc="mri_recurrent_hybrid DPS"), start=split):
+            alpha = 0.5 * sigma ** 2
+            for _ in range(dps_inner_loops):
+                indices = getIndices(spaced, patches, pad, psize)
+                x, _ = _dps_update(
+                    net, x, sigma, alpha, latents_pos, inverseop, measurement, indices, fov, zeta,
+                    add_noise=outer < num_steps - 1,
+                )
+                counts["main_denoise"] += 1
+                counts["dps_backprops"] += 1
+        counts["dps_main_denoise"] = counts["main_denoise"] - counts["recurrent_main_denoise"]
+        result = x[:, :, fov, fov].squeeze(1)
+        if diagnostics is not None:
+            diagnostics["final_dps"] = result
+    else:
+        result = average.squeeze(1)
+        if diagnostics is not None:
+            diagnostics["terminal_average"] = result
+    return result
 
 @torch.no_grad()
 def reconstruct(
@@ -165,24 +299,23 @@ def reconstruct(
 
         for inner in range(inner_loops):
             indices = getIndices(spaced, patches, pad, psize)
-            # 只在 DPS 尾段记录计算图，沿用当前 x 和随机数流。
-            with torch.set_grad_enabled(use_dps):
-                if use_dps:
-                    x = x.detach().requires_grad_(True)
-                x_noisy = x + sigma * torch.randn_like(x)
-                denoised = denoisedFromPatches(
-                    net, _channels(x_noisy), sigma, latents_pos, None, indices,
-                    t_goal=0, wrong=False,
+            if use_dps:
+                x, prediction_fov = _dps_update(
+                    net, x, sigma, alpha, latents_pos, inverseop, measurement, indices, fov, zeta,
+                    add_noise=outer < num_steps - 1,
                 )
-                if use_dps:
-                    cropped = denoised[:, :, fov, fov]
-                    residual = measurement - inverseop.forward(cropped)
-                    sse = torch.norm(residual.flatten(1), dim=-1) ** 2
-                    likelihood_grad = torch.autograd.grad(sse.sum(), x)[0]
+                if counts is not None:
+                    counts["main_denoise"] += 1
+                    counts["dps_backprops"] += 1
+                continue
 
+            x_noisy = x + sigma * torch.randn_like(x)
+            denoised = denoisedFromPatches(
+                net, _channels(x_noisy), sigma, latents_pos, None, indices,
+                t_goal=0, wrong=False,
+            )
             if counts is not None:
                 counts["main_denoise"] += 1
-                counts["dps_backprops"] += int(use_dps)
 
             if use_fh:
                 x_fov = x[:, :, fov, fov]
@@ -226,11 +359,7 @@ def reconstruct(
             score = (prediction - x_noisy) / sigma ** 2
             prediction_fov = prediction[:, :, fov, fov]
 
-            if use_dps:
-                # 按原版 DPS 归一化残差梯度，残差为零时避免除零。
-                residual_norm = sse.clamp_min(torch.finfo(sse.dtype).tiny).sqrt()
-                x = x - (zeta / residual_norm[:, None, None, None]) * likelihood_grad
-            elif layer_dc:
+            if layer_dc:
                 prediction_sum.add_(prediction_fov)
             else:
                 delta = _cg_correction(
