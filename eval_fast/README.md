@@ -1,16 +1,103 @@
 # PaDIS-MRI 快速重建对照
 
-## CT-CG-DDIM 首轮实验
+本包基于 `eval_fast_mri_recurrent_cg_v4.zip`，包含运行入口、采样器、原有诊断模块，以及 PaDIS-MRI 和 Free Hunch 的许可证。目标仓库提供 `eval/evaluator_fixed_seed123.py`、`eval/recon.py`、`eval/denoise_padding.py`、`eval/inverse_operators.py`、`eval/utils.py`、`dnnlib/`、`torch_utils/` 和 `train/padis-mri/`。沿用服务器上可运行现有 PaDIS 推理的 Python 环境、PyTorch/CUDA 与 BART 配置。
 
-在 PaDIS-MRI `main-WSY` 仓库根目录解压 `eval_fast_ct_cg_ddim.zip`。此包基于提交 `72b18b48cbfca1d689b768de2d726e16321fd962`，包含运行入口、采样器、FH 精度与诊断模块，以及 PaDIS-MRI 和 Free Hunch 的许可证。
+## MRI recurrent hybrid 两张实验
 
-目标仓库提供 `eval/evaluator_fixed_seed123.py`、`eval/recon.py`、`eval/denoise_padding.py`、`eval/inverse_operators.py`、`eval/utils.py`、`dnnlib/`、`torch_utils/` 和 `train/padis-mri/`。沿用服务器上可运行现有 PaDIS 推理的 Python 环境、PyTorch/CUDA 与 BART 配置。评估依赖包括 NumPy、SigPy、scikit-image、Matplotlib、Pillow、SciPy、Diffusers、Click 和 tqdm。运行实验需要现有 OPA EMA checkpoint 和带 `mask_7` 的 T1-FLAIR 验证样本。
+`mri_recurrent_hybrid` 在同一条 104 层 VE 调度上运行。前 94 层使用 B1K3 recurrent-CG，前 93 层用 v4 的 VE-DDIM 跨层更新。第 94 层把 CG 修正图 padding 后直接交给第 95 层。后 10 层复用原 PaDIS DPS 单步，每层执行 10 次内循环，由 DPS 自行生成每轮带噪输入。主重建取自最后一轮 DPS 状态。
+
+`inner_loops` 记录 recurrent 阶段每层的去噪轮数，`dps_inner_loops` 单独记录 DPS 每层内循环次数，默认 10。新模式要求 `0 < dps_tail_steps < steps`。纯 recurrent 运行使用 `mri_recurrent_cg`。
+
+### T1-FLAIR R7 sample 19 和 26
+
+```bash
+cd /mnt/SSD/wsy/projects/PaDIS-MRI-main
+unzip -o eval_fast_mri_recurrent_hybrid_v5.zip
+
+export CUDA_VISIBLE_DEVICES=5
+export MPLBACKEND=Agg
+export PYTHONPATH="$PWD:$PWD/train/padis-mri:$PWD/eval${PYTHONPATH:+:$PYTHONPATH}"
+export PADIS_PATCH_BATCH=49
+export PADIS_PATCH_CHECKPOINT=0
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+RUNS=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/overlap_independent_training-runs/brain/32dB
+RUN=overnight_overlap_independent_center_symmetric_lam2p0_active64_bgpu1_s16s32s64_p020305_b4_seed123_geomidentical_spatialuniform
+MODEL="$RUNS/$RUN/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch4-fp32-overlap-independent-center-lam2p0-p64-align-symmetric-geom-identical-spatial-uniform/network-snapshot-005000.pkl"
+VAL=/mnt/SSD2/wsy/brain_multicoil/fastmri_3T_eval/val_t1-flair_subsamp/32dB
+RECON_ROOT=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/new_data
+
+run_sample() {
+  python -u eval_fast/run.py \
+    --mode mri_recurrent_hybrid \
+    --model_path "$MODEL" --val_dir "$VAL" --save_dir "$RECON_ROOT/$2" \
+    --sample_indices "$1" --mask_select 7 --seed 123 --image_size 384 \
+    --pad 64 --psize 64 --steps 104 --recurrent_branches 1 --recurrent_depth 3 \
+    --ddim_eta 0.8 --cg_lambda 0.1 --cg_iters 5 --cg_gain 1.0 \
+    --dps_tail_steps 10 --dps_inner_loops 10 --zeta 3.0 --diagnose_mri_recurrent_hybrid
+}
+
+run_sample 19 eval_fast_OPA_lam2p0_T1FLAIR_R7_mri_recurrent_hybrid_v5_s104_b1k3_dps10_sample19
+run_sample 26 eval_fast_OPA_lam2p0_T1FLAIR_R7_mri_recurrent_hybrid_v5_s104_b1k3_dps10_sample26
+```
+
+主重建和指标沿用 `evaluate/recons/` 与 `evaluate/comp_plots/`。开启诊断后，`evaluate/mri_recurrent_diagnostics/` 中保存交接层的 `branch_1_round_1` 至 `branch_1_round_3`、`recurrent_terminal`、`recurrent_after_cg`，以及与主重建相同的 `final_dps`。图像和指标沿用原有后处理。
+
+默认每张图为 **282 次 recurrent 去噪、100 次 DPS 去噪、382 次总去噪、100 次 DPS 反传、94 次 CG 求解、470 次 CG 迭代**。`config.json` 和 `timing.json` 的 `operations_per_sample` 分别以 `recurrent_main_denoise` 与 `dps_main_denoise` 记录两个阶段的去噪次数。DPS 尾段峰值显存按原始 DPS 的求导路径估计，实际质量、耗时及显存以服务器运行结果为准。
+
+小尺寸 CPU 测试验证了操作计数、干净交接和真实 autograd。DPS 尾段与从同一状态和随机数流重放的 v4 DPS 逐位一致，纯 B1K3 和 B2K2 的固定 seed 回归通过。
+
+## v4 MRI recurrent CG 对照
+
+新模式沿用 PaDIS-MRI 的多线圈算子、位置编码、随机 patch 划分和 104 层 VE 调度（`sigma_max=10`、`sigma_min=0.003`、`rho=7`）。调度附加的零点只作终点。初值为 `Pad(A*y) + sigma_max * noise`，其中 `A*` 表示 MRI 伴随算子。所有注入噪声使用 PyTorch 复数 `randn_like`，实部和虚部各具有 1/2 方差。
+
+每层的各分支从同一带噪图出发，每轮独立抽取 patch offset。前 `recurrent_depth - 1` 轮的干净预测用于生成下一轮的同层带噪输入。各分支的最终轮干净预测取算术平均。每个分支的终态噪声预测为 `(最终轮实际输入 − 最终轮干净预测) / sigma`，再在分支间取算术平均。
+
+前 `steps - 1` 层在终态融合图 `v` 的真实 FOV 上，从零增量开始做 5 次复数 CG 迭代，求解 `(A*A + cg_lambda I) delta = A*(y − A v)`。正则项约束修正量，随后取 `v_dc = v + cg_gain * delta`。本模式默认 `cg_lambda=0.1`、`cg_iters=5`、`cg_gain=1.0`。将修正图重新 padding，并加上 `sigma_next * (sqrt(1 − eta²) * fused_noise + eta * fresh_noise)`，默认 `eta=0.8`。最后一层直接以终态均值作为重建结果。
+
+本次正式命令使用 B1K4，在与默认 B2K2 相同的 416 次分块去噪预算下，将每层的四轮前向用于一个分支。背景与参数来源见 [PaDIS 论文](https://arxiv.org/abs/2406.02462)、[PaDIS 官方代码](https://github.com/jasonhu4/PaDIS)、[PaDIS-MRI 论文](https://arxiv.org/abs/2509.21531)、[PaDIS-MRI 官方代码](https://github.com/voilalab/PaDIS-MRI)和 [3D CT 论文 Algorithm 1 与表 5](https://arxiv.org/html/2512.18161v1#S3.SS2)。
+
+### T1-FLAIR R7 sample 26
+
+在仓库根目录放入 ZIP 后执行。checkpoint 目录中的 `lam2p0` 对应报告中的 OPA λ=1.0。
+
+```bash
+cd /mnt/SSD/wsy/projects/PaDIS-MRI-main
+
+export CUDA_VISIBLE_DEVICES=6
+export MPLBACKEND=Agg
+export PYTHONPATH="$PWD:$PWD/train/padis-mri:$PWD/eval${PYTHONPATH:+:$PYTHONPATH}"
+export PADIS_PATCH_BATCH=49
+export PADIS_PATCH_CHECKPOINT=0
+
+RUNS=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-runs/overlap_independent_training-runs/brain/32dB
+RUN=overnight_overlap_independent_center_symmetric_lam2p0_active64_bgpu1_s16s32s64_p020305_b4_seed123_geomidentical_spatialuniform
+MODEL="$RUNS/$RUN/00000-aapm_3-uncond-ddpmpp-pedm-gpus1-batch4-fp32-overlap-independent-center-lam2p0-p64-align-symmetric-geom-identical-spatial-uniform/network-snapshot-005000.pkl"
+VAL=/mnt/SSD2/wsy/brain_multicoil/fastmri_3T_eval/val_t1-flair_subsamp/32dB
+OUT=/mnt/SSD2/wsy/PaDIS-MRI/PaDIS-MRI-recon/new_data/eval_fast_OPA_lam2p0_T1FLAIR_R7_mri_recurrent_cg_v4_s104_b1k4_seed123_sample26
+
+python -u eval_fast/run.py \
+  --mode mri_recurrent_cg \
+  --model_path "$MODEL" --val_dir "$VAL" --save_dir "$OUT" \
+  --sample_indices 26 --mask_select 7 --seed 123 --image_size 384 \
+  --pad 64 --psize 64 --steps 104 --recurrent_branches 1 --recurrent_depth 4 \
+  --ddim_eta 0.8 --cg_lambda 0.1 --cg_iters 5 --cg_gain 1.0 --diagnose_mri_recurrent
+```
+
+`--recurrent_branches` 接受正整数，`--recurrent_depth` 接受大于等于 2 的整数，两者默认均为 2。`inner_loops` 记录两者的乘积，即每层的总预测轮数。每轮完整分块去噪计一次 `main_denoise`，切成多个 patch batch 时计数口径相同。
+
+主结果仍写入 `evaluate/recons/recon_patch_26.npy` 和 `evaluate/comp_plots/results.json`，全图指标和 PNG 沿用 `post_eval_normalize`。诊断在 `evaluate/mri_recurrent_diagnostics/` 下保存末层的各分支各轮预测。B1K4 生成 `branch_1_round_1` 至 `branch_1_round_4` 和 `terminal_average`，每项均有 `recons/recon_patch_26.npy`、`comp_plots/results.json` 和对应 PNG。`terminal_average` 与主重建相同。诊断复用采样张量，GT 由采样结束后的评估函数读取。
+
+`config.json` 和 `timing.json` 都记录每样本操作计数和同步后的重建墙钟时间。`config.json` 另记录 `"noise_fusion": "terminal_mean"` 和 `"final_cg": false`。104 层 B1K4 与默认 B2K2 均为 **416 次主去噪、103 次 CG 求解、515 次 CG 迭代、0 次 DPS 反传**。如需分段计时，换独立输出目录并加 `--profile_mri_recurrent`，结果写到 `timing.json` 的 `gpu_seconds_per_sample`，包括 `denoise`、`recurrent_fusion`、`cg_total`、`ve_ddim`。总时间包含采样和末尾 CUDA 同步，样本读取、文件写出与后评估单独进行。
+
+本地通过 Python 语法编译、终态融合与末层跳过 CG 的静态检查，以及小尺寸 CPU 采样检查。B2K2 的固定 seed 输出和随机数调用顺序与 v3 一致，B1K4 的 104 层合成运行计数为 `416 / 103 / 515 / 0`。真实 sample 26 的全图质量、峰值显存和 GPU 耗时待服务器实测。
+
+## 旧 CT-CG-DDIM 对照
 
 采样流程参考 [Yang 等人的 Algorithm 1 与表 5](https://arxiv.org/html/2512.18161v1#S3.SS2)。在 PaDIS 的 VE 调度上，同层完成两轮分块去噪，融合后在真实 FOV 做一次各向同性 CG，再从 CG 修正后的干净估计进入下一层。默认 `steps=200`、`inner_loops=2`、`ddim_eta=0.8`。首轮 MRI 参数为 `cg_lambda=0.1`、`cg_iters=5`、`cg_gain=1.0`。checkpoint 目录中的 `lam2p0` 对应报告中的 OPA 权重 λ=1.0。
 
 ```bash
 cd /mnt/SSD/wsy/projects/PaDIS-MRI-main
-unzip -o /path/to/eval_fast_ct_cg_ddim.zip
 export CUDA_VISIBLE_DEVICES="${GPU:-2}"
 export MPLBACKEND=Agg
 export PYTHONPATH="$PWD:$PWD/train/padis-mri:$PWD/eval${PYTHONPATH:+:$PYTHONPATH}"
@@ -29,6 +116,8 @@ python -u eval_fast/run.py --mode ct_cg_ddim \
 ```
 
 两张图分别重置 seed 123。重复实验时为 `OUT` 指定新目录。可用 `python eval_fast/smoke_ct_cg_ddim.py` 在 CPU 上检查两层两轮的调用顺序、跨层状态和末层返回。
+
+只定位最后一次 CG 的影响时，在原命令末尾增加 `--diagnose_ct_cg`。程序会额外把第 200 层去噪融合后、最后一次 CG 前的图保存到 `evaluate/pre_last_cg_recons/`，并把对应指标和对比图保存到 `evaluate/pre_last_cg_plots/`。原来的 `evaluate/recons/` 和 `evaluate/comp_plots/` 仍是 CG 后的正式结果。
 
 运行结束后核对实际操作计数和全图结果。
 
