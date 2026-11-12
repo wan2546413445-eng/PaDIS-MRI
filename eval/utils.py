@@ -114,6 +114,42 @@ def makeFigures(noisy2,
 
 
 
+def _espirit_foreground_mask(s_maps: torch.Tensor) -> np.ndarray:
+    """
+    Reproduce BART ecalib-to-RSS foreground weighting from saved ESPIRiT maps.
+
+    Validation files already contain maps made by bart ecalib -m 1 -c0.
+    RSS across coils therefore yields the same soft foreground/support mask.
+    """
+    maps = s_maps.detach().cpu().numpy() if torch.is_tensor(s_maps) else np.asarray(s_maps)
+    maps = np.squeeze(maps)
+    if maps.ndim != 3:
+        raise ValueError(f"Expected ESPIRiT maps [coil,H,W], got {maps.shape}")
+
+    foreground = np.sqrt(np.sum(np.abs(maps) ** 2, axis=0))
+    foreground = np.nan_to_num(foreground, nan=0.0, posinf=0.0, neginf=0.0)
+    if not np.any(foreground > 0):
+        raise ValueError("ESPIRiT foreground mask is empty")
+    return foreground.astype(np.float64, copy=False)
+
+
+def _metric_triplet(gt: np.ndarray, x: np.ndarray) -> Dict[str, float]:
+    data_range = float(gt.max() - gt.min()) if gt.size else 1.0
+    if not np.isfinite(data_range) or data_range <= 0:
+        data_range = float(np.max(np.abs(gt))) if gt.size else 1.0
+    data_range = max(data_range, 1e-9)
+    return {
+        "psnr": float(_psnr_np(gt, x, data_range=data_range)),
+        "ssim": float(ssim(gt, x, data_range=data_range)),
+        "nrmse": float(_nrmse_np(gt, x)),
+    }
+
+
+def _save_image(image: np.ndarray, path: Path, cmap: str, vmin: float, vmax: float) -> None:
+    """Save without axes, title, margins, or another image normalization."""
+    plt.imsave(path, image, cmap=cmap, vmin=vmin, vmax=max(float(vmax), float(vmin) + 1e-9))
+
+
 def post_eval_normalize(
     recon_dir: str,
     val_dir: str,
@@ -122,26 +158,21 @@ def post_eval_normalize(
     mask_select: Optional[int] = None,
 ) -> Dict:
     """
-    Post-process reconstructions: normalize by FS k-space ACS-derived constant,
-    compute PSNR/SSIM/NRMSE vs GT, and save side-by-side plots + a results JSON.
-
-    Args:
-        recon_dir: path to npy recon files (e.g., save_dir/evaluate/recons/)
-        val_dir:   path to .pt validation samples (same as --val_dir)
-        plot_dir:  where to save PNGs (e.g., save_dir/new_plots/)
-        json_basename: basename for the output json file ('.json' will be appended if missing)
-        mask_select: restrict files by mask id when pattern contains 'mask{mask}_idx.npy'
-
-    Returns:
-        results dict with per_image metrics and summary stats.
+    Keep the existing full-image metrics and add pULA-style ESPIRiT-masked
+    metrics. For the latter, GT and reconstruction are multiplied by the same
+    soft foreground mask before PSNR, SSIM, and NRMSE are computed.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     recon_dir = Path(recon_dir)
     val_dir = Path(val_dir)
     plot_dir = Path(plot_dir)
     plot_dir.mkdir(parents=True, exist_ok=True)
+    individual_dir = plot_dir / "individual"
+    individual_dir.mkdir(parents=True, exist_ok=True)
 
-    json_path = plot_dir / (json_basename if json_basename.endswith(".json") else f"{json_basename}.json")
+    json_path = plot_dir / (
+        json_basename if json_basename.endswith(".json") else f"{json_basename}.json"
+    )
 
     patterns = [
         "recon_admm_*.npy",
@@ -163,120 +194,185 @@ def post_eval_normalize(
         return {"per_image": {}, "summary": {}}
 
     if "admm_mask" in (pattern_used or ""):
-        regex = r'^recon_admm_mask(?P<mask>\d+)_(?P<idx>\d+)\.npy$'
+        regex = r"^recon_admm_mask(?P<mask>\d+)_(?P<idx>\d+)\.npy$"
     elif "admm" in (pattern_used or ""):
-        regex = r'^recon_admm_(?P<idx>\d+)\.npy$'
+        regex = r"^recon_admm_(?P<idx>\d+)\.npy$"
     elif "patch" in (pattern_used or ""):
-        regex = r'^recon_patch_(?P<idx>\d+)\.npy$'
+        regex = r"^recon_patch_(?P<idx>\d+)\.npy$"
     elif "whole" in (pattern_used or ""):
-        regex = r'^recon_whole_(?P<idx>\d+)\.npy$'
+        regex = r"^recon_whole_(?P<idx>\d+)\.npy$"
     else:
-        regex = r'^recon_(?P<idx>\d+)\.npy$'
+        regex = r"^recon_(?P<idx>\d+)\.npy$"
 
     def normalization_const_from_ksp(fs_ksp: torch.Tensor) -> float:
-        """Calculate normalization constant from fully-sampled k-space via ACS."""
-        ksp_numpy = fs_ksp.squeeze(0).cpu().numpy()  # [Nc,H,W]
-        ACS_size = 24
-        num_coils, H, W = ksp_numpy.shape
-        ksp_acs_only = sp.resize(sp.resize(ksp_numpy, (num_coils, ACS_size, ACS_size)), ksp_numpy.shape)
-        ACS_img = sp.rss(sp.ifft(ksp_acs_only, axes=(-2, -1)), axes=(0,))
-        return float(np.percentile(np.abs(ACS_img), 99))
+        ksp_numpy = fs_ksp.squeeze(0).cpu().numpy()
+        acs_size = 24
+        num_coils, _, _ = ksp_numpy.shape
+        ksp_acs_only = sp.resize(
+            sp.resize(ksp_numpy, (num_coils, acs_size, acs_size)),
+            ksp_numpy.shape,
+        )
+        acs_img = sp.rss(sp.ifft(ksp_acs_only, axes=(-2, -1)), axes=(0,))
+        return float(np.percentile(np.abs(acs_img), 99))
 
-    results: Dict = {"per_image": {}}
+    results: Dict = {
+        "metric_protocol": {
+            "full_image": "Existing PaDIS-MRI full-image metrics",
+            "espirit_masked": (
+                "GT and reconstruction multiplied by the same soft ESPIRiT "
+                "foreground mask before metric computation"
+            ),
+            "espirit_mask_source": "RSS of saved BART ecalib sensitivity maps",
+        },
+        "per_image": {},
+    }
     epsilon = 1e-9
 
     for rf in recon_files:
-        m = re.fullmatch(regex, rf.name)
-        if not m:
+        match = re.fullmatch(regex, rf.name)
+        if not match:
             print(f"[post_eval_normalize] Skip unexpected filename: {rf.name}")
             continue
 
-        if "mask" in m.groupdict():
-            file_mask = int(m.group("mask"))
+        if "mask" in match.groupdict():
+            file_mask = int(match.group("mask"))
             if mask_select is not None and file_mask != mask_select:
                 continue
 
-        sample_idx = int(m.group("idx"))
+        sample_idx = int(match.group("idx"))
 
         try:
-            recon = torch.from_numpy(np.load(rf)[None, ...]).to(device)  # [1,H,W]
+            recon = torch.from_numpy(np.load(rf)[None, ...]).to(device)
             sample_pt = val_dir / f"sample_{sample_idx}.pt"
             data = torch.load(sample_pt, map_location=device, weights_only=False)
-
-            gt = data['gt'][None, None, ...].to(device)              # [1,1,H,W] complex
-            s_maps = data['s_map'][None, ...].to(device)
-            fs_ksp = fftmod(data['ksp'])[None, ...].to(device)
-            key_mask = f"mask_{mask_select}" if mask_select is not None else "mask_7"
-            mask = data[key_mask][None, ...].to(device)
-
+            gt = data["gt"][None, None, ...].to(device)
+            s_maps = data["s_map"].to(device)
+            fs_ksp = fftmod(data["ksp"].clone())[None, ...].to(device)
         except FileNotFoundError:
             print(f"[post_eval_normalize] Missing GT sample for idx {sample_idx}; skipping.")
             continue
-        except KeyError as e:
-            print(f"[post_eval_normalize] Missing key {e} for idx {sample_idx}; skipping.")
+        except KeyError as exc:
+            print(f"[post_eval_normalize] Missing key {exc} for idx {sample_idx}; skipping.")
             continue
 
         norm_val = normalization_const_from_ksp(fs_ksp)
-        gt_norm = torch.abs(gt) / (norm_val + epsilon)
-        recon_norm = torch.abs(recon) / (norm_val + epsilon)
+        gt2 = (torch.abs(gt) / (norm_val + epsilon)).squeeze().detach().cpu().numpy()
+        rc2 = (torch.abs(recon) / (norm_val + epsilon)).squeeze().detach().cpu().numpy()
 
-        gt2 = gt_norm.squeeze().detach().cpu().numpy()
-        rc2 = recon_norm.squeeze().detach().cpu().numpy()
-        data_range = float(gt2.max() - gt2.min()) if gt2.size > 0 else 1.0
+        full_metrics = _metric_triplet(gt2, rc2)
+        espirit_mask = _espirit_foreground_mask(s_maps)
+        if espirit_mask.shape != gt2.shape:
+            raise ValueError(
+                f"ESPIRiT mask shape {espirit_mask.shape} does not match image shape {gt2.shape}"
+            )
 
-        # Metrics
-        m_nrmse = _nrmse_np(gt2, rc2)
-        m_psnr = _psnr_np(gt2, rc2, data_range=data_range)
-        from skimage.metrics import structural_similarity as _ssim
-        m_ssim = float(_ssim(gt2, rc2, data_range=data_range))
+        gt_espirit = gt2 * espirit_mask
+        rc_espirit = rc2 * espirit_mask
+        espirit_metrics = _metric_triplet(gt_espirit, rc_espirit)
 
-        results["per_image"][str(sample_idx)] = {"psnr": m_psnr, "ssim": m_ssim, "nrmse": m_nrmse}
+        support_threshold = float(espirit_mask.max()) * 1e-6
+        support_fraction = float(np.mean(espirit_mask > support_threshold))
+        mask_weight_mean = float(np.mean(espirit_mask))
 
-        us_ksp = fs_ksp * mask
-        mri_op = MRI_utils(mask=mask, maps=s_maps)
-        adjoint = mri_op.adjoint(us_ksp)
-        adj2 = (torch.abs(adjoint) / (norm_val + epsilon)).squeeze().detach().cpu().numpy()
-
-        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        vmax = np.percentile(gt2, 99.5) if np.isfinite(gt2).all() else gt2.max()
-
-        axes[0].imshow(adj2, cmap='gray', vmax=vmax);  axes[0].set_title('Adjoint (Zero-Filled)'); axes[0].axis('off')
-        axes[1].imshow(rc2,  cmap='gray', vmax=vmax);  axes[1].set_title('Reconstruction');        axes[1].axis('off')
-        axes[2].imshow(gt2,  cmap='gray', vmax=vmax);  axes[2].set_title('Ground Truth');          axes[2].axis('off')
-
-        fig.suptitle(
-            f"Sample {sample_idx} | NRMSE: {m_nrmse:.4f}, PSNR: {m_psnr:.2f} dB, SSIM: {m_ssim:.4f}",
-            fontsize=16
-        )
-        plt.tight_layout()
-        fig.savefig(plot_dir / f"comparison_sample_{sample_idx}.png")
-        plt.close(fig)
-
-    all_psnr = [v['psnr'] for v in results['per_image'].values()]
-    all_ssim = [v['ssim'] for v in results['per_image'].values()]
-    all_nrmse = [v['nrmse'] for v in results['per_image'].values()]
-    if all_psnr:
-        results["summary"] = {
-            "psnr_mean": float(np.mean(all_psnr)), "psnr_std": float(np.std(all_psnr)),
-            "ssim_mean": float(np.mean(all_ssim)), "ssim_std": float(np.std(all_ssim)),
-            "nrmse_mean": float(np.mean(all_nrmse)), "nrmse_std": float(np.std(all_nrmse)),
+        results["per_image"][str(sample_idx)] = {
+            "psnr": full_metrics["psnr"],
+            "ssim": full_metrics["ssim"],
+            "nrmse": full_metrics["nrmse"],
+            "espirit_masked_psnr": espirit_metrics["psnr"],
+            "espirit_masked_ssim": espirit_metrics["ssim"],
+            "espirit_masked_nrmse": espirit_metrics["nrmse"],
+            "espirit_mask_support_fraction": support_fraction,
+            "espirit_mask_weight_mean": mask_weight_mean,
         }
 
-    with open(json_path, "w") as f:
-        json.dump(
-            results,
-            f,
-            indent=2,
-            default=lambda x: float(x)
+        vmax = float(np.percentile(gt2, 99.5)) if np.isfinite(gt2).all() else float(gt2.max())
+        vmax = max(vmax, epsilon)
+        error = np.abs(gt2 - rc2)
+        error_vmax = float(np.percentile(error, 99.5)) if np.any(error > 0) else 1.0
+        mask_vmax = max(float(espirit_mask.max()), epsilon)
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        axes[0].imshow(gt2, cmap="gray", vmin=0.0, vmax=vmax)
+        axes[0].set_title("Ground Truth")
+        axes[0].axis("off")
+        axes[1].imshow(rc2, cmap="gray", vmin=0.0, vmax=vmax)
+        axes[1].set_title("Reconstruction")
+        axes[1].axis("off")
+        fig.suptitle(
+            (
+                f"Sample {sample_idx} | Full: "
+                f"PSNR {full_metrics['psnr']:.2f} dB, "
+                f"SSIM {full_metrics['ssim']:.4f}, "
+                f"NRMSE {full_metrics['nrmse']:.4f}\n"
+                f"ESPIRiT-masked: "
+                f"PSNR {espirit_metrics['psnr']:.2f} dB, "
+                f"SSIM {espirit_metrics['ssim']:.4f}, "
+                f"NRMSE {espirit_metrics['nrmse']:.4f}"
+            ),
+            fontsize=13,
         )
+        plt.tight_layout()
+        fig.savefig(plot_dir / f"comparison_sample_{sample_idx}.png", dpi=200, bbox_inches="tight")
+        plt.close(fig)
+
+        _save_image(gt2, individual_dir / f"gt_sample_{sample_idx}.png", "gray", 0.0, vmax)
+        _save_image(rc2, individual_dir / f"recon_sample_{sample_idx}.png", "gray", 0.0, vmax)
+        _save_image(error, individual_dir / f"error_sample_{sample_idx}.png", "inferno", 0.0, error_vmax)
+        _save_image(
+            espirit_mask,
+            individual_dir / f"espirit_mask_sample_{sample_idx}.png",
+            "gray",
+            0.0,
+            mask_vmax,
+        )
+        _save_image(
+            rc_espirit,
+            individual_dir / f"recon_espirit_masked_sample_{sample_idx}.png",
+            "gray",
+            0.0,
+            vmax,
+        )
+
+    metric_names = (
+        "psnr",
+        "ssim",
+        "nrmse",
+        "espirit_masked_psnr",
+        "espirit_masked_ssim",
+        "espirit_masked_nrmse",
+        "espirit_mask_support_fraction",
+        "espirit_mask_weight_mean",
+    )
+    if results["per_image"]:
+        summary = {}
+        for name in metric_names:
+            values = [item[name] for item in results["per_image"].values()]
+            summary[f"{name}_mean"] = float(np.mean(values))
+            summary[f"{name}_std"] = float(np.std(values))
+        results["summary"] = summary
+
+    with open(json_path, "w") as handle:
+        json.dump(results, handle, indent=2, default=lambda value: float(value))
 
     print(f"[post_eval_normalize] Metrics → {json_path}")
     print(f"[post_eval_normalize] Plots   → {plot_dir}")
 
     if "summary" in results:
-        s = results["summary"]
-        print(f"[post_eval_normalize] PSNR  {s['psnr_mean']:.2f} ± {s['psnr_std']:.2f} dB")
-        print(f"[post_eval_normalize] SSIM  {s['ssim_mean']:.4f} ± {s['ssim_std']:.4f}")
-        print(f"[post_eval_normalize] NRMSE {s['nrmse_mean']:.4f} ± {s['nrmse_std']:.4f}")
+        summary = results["summary"]
+        print(
+            f"[post_eval_normalize] Full image     | "
+            f"PSNR {summary['psnr_mean']:.2f} ± {summary['psnr_std']:.2f} dB | "
+            f"SSIM {summary['ssim_mean']:.4f} ± {summary['ssim_std']:.4f} | "
+            f"NRMSE {summary['nrmse_mean']:.4f} ± {summary['nrmse_std']:.4f}"
+        )
+        print(
+            f"[post_eval_normalize] ESPIRiT-masked | "
+            f"PSNR {summary['espirit_masked_psnr_mean']:.2f} ± "
+            f"{summary['espirit_masked_psnr_std']:.2f} dB | "
+            f"SSIM {summary['espirit_masked_ssim_mean']:.4f} ± "
+            f"{summary['espirit_masked_ssim_std']:.4f} | "
+            f"NRMSE {summary['espirit_masked_nrmse_mean']:.4f} ± "
+            f"{summary['espirit_masked_nrmse_std']:.4f}"
+        )
 
     return results
