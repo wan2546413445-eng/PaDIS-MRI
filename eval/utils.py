@@ -11,6 +11,10 @@ import matplotlib.pyplot as plt
 from typing import Optional, List, Tuple, Dict, Union
 
 from inverse_operators import *
+from dnnlib.util import configure_bart
+
+configure_bart()
+from bart import bart
 
 torch.manual_seed(123)
 np.random.seed(123)
@@ -114,24 +118,43 @@ def makeFigures(noisy2,
 
 
 
-def _espirit_foreground_mask(s_maps: torch.Tensor) -> np.ndarray:
+def _espirit_foreground_mask(fs_ksp: torch.Tensor) -> np.ndarray:
     """
-    Reproduce BART ecalib-to-RSS foreground weighting from saved ESPIRiT maps.
+    Compute the pULA-style foreground mask from fully sampled multi-coil
+    k-space with BART: ecalib -r16 -A -m1 followed by RSS across coils.
 
-    Validation files already contain maps made by bart ecalib -m 1 -c0.
-    RSS across coils therefore yields the same soft foreground/support mask.
+    Unlike the saved sensitivity maps, this call keeps ESPIRiT's default
+    eigenvalue crop (0.8), which is what turns the sensitivity support into
+    a foreground mask.
     """
-    maps = s_maps.detach().cpu().numpy() if torch.is_tensor(s_maps) else np.asarray(s_maps)
-    maps = np.squeeze(maps)
-    if maps.ndim != 3:
-        raise ValueError(f"Expected ESPIRiT maps [coil,H,W], got {maps.shape}")
+    ksp = fs_ksp.detach().cpu().numpy() if torch.is_tensor(fs_ksp) else np.asarray(fs_ksp)
+    ksp = np.squeeze(ksp)
+    if ksp.ndim != 3:
+        raise ValueError(f"Expected fully sampled k-space [coil,H,W], got {ksp.shape}")
 
-    foreground = np.sqrt(np.sum(np.abs(maps) ** 2, axis=0))
+    num_coils = ksp.shape[0]
+    ksp_bart = np.transpose(ksp, (1, 2, 0))[:, :, None, :]
+    sensitivity = np.asarray(
+        bart(1, "ecalib -r16 -A -m1", ksp_bart)
+    ).squeeze()
+
+    coil_axes = [axis for axis, size in enumerate(sensitivity.shape) if size == num_coils]
+    if sensitivity.ndim != 3 or not coil_axes:
+        raise ValueError(
+            f"Unexpected BART sensitivity-map shape {sensitivity.shape}; "
+            f"expected one coil axis of length {num_coils}"
+        )
+
+    foreground = np.sqrt(np.sum(np.abs(sensitivity) ** 2, axis=coil_axes[-1]))
     foreground = np.nan_to_num(foreground, nan=0.0, posinf=0.0, neginf=0.0)
+    if foreground.shape != ksp.shape[-2:]:
+        raise ValueError(
+            f"ESPIRiT foreground shape {foreground.shape} does not match "
+            f"k-space image shape {ksp.shape[-2:]}"
+        )
     if not np.any(foreground > 0):
         raise ValueError("ESPIRiT foreground mask is empty")
     return foreground.astype(np.float64, copy=False)
-
 
 def _metric_triplet(gt: np.ndarray, x: np.ndarray) -> Dict[str, float]:
     data_range = float(gt.max() - gt.min()) if gt.size else 1.0
@@ -222,7 +245,7 @@ def post_eval_normalize(
                 "GT and reconstruction multiplied by the same soft ESPIRiT "
                 "foreground mask before metric computation"
             ),
-            "espirit_mask_source": "RSS of saved BART ecalib sensitivity maps",
+            "espirit_mask_source": "BART ecalib -r16 -A -m1 followed by coil RSS",
         },
         "per_image": {},
     }
@@ -246,8 +269,8 @@ def post_eval_normalize(
             sample_pt = val_dir / f"sample_{sample_idx}.pt"
             data = torch.load(sample_pt, map_location=device, weights_only=False)
             gt = data["gt"][None, None, ...].to(device)
-            s_maps = data["s_map"].to(device)
-            fs_ksp = fftmod(data["ksp"].clone())[None, ...].to(device)
+            raw_fs_ksp = data["ksp"]
+            fs_ksp = fftmod(raw_fs_ksp.clone())[None, ...].to(device)
         except FileNotFoundError:
             print(f"[post_eval_normalize] Missing GT sample for idx {sample_idx}; skipping.")
             continue
@@ -260,7 +283,7 @@ def post_eval_normalize(
         rc2 = (torch.abs(recon) / (norm_val + epsilon)).squeeze().detach().cpu().numpy()
 
         full_metrics = _metric_triplet(gt2, rc2)
-        espirit_mask = _espirit_foreground_mask(s_maps)
+        espirit_mask = _espirit_foreground_mask(raw_fs_ksp)
         if espirit_mask.shape != gt2.shape:
             raise ValueError(
                 f"ESPIRiT mask shape {espirit_mask.shape} does not match image shape {gt2.shape}"
