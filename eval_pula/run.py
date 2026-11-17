@@ -108,12 +108,18 @@ def load_measurement(val_dir, index, mask_select, device):
 
     # Same .pt fields and orientation as DPSHyperEvaluator._load_sample.
     data = torch.load(Path(val_dir) / f"sample_{index}.pt", map_location="cpu", weights_only=False)
+    # 线圈灵敏度图。沿用 PaDIS 的 FFT 调制约定，
+    # [None] 加一个 batch 维，得到 [1, 线圈数, H, W]。
     maps = fftmod(data["s_map"])[None].to(device=device, dtype=torch.complex64)
+    # 多线圈 k-space。
     kspace = fftmod(data["ksp"])[None].to(device=device, dtype=torch.complex64)
+    # mask_select=4，所以取 mask_4。形状是 [1, 1, H, W]。
     mask = data[f"mask_{mask_select}"][None].to(device)
     if mask.shape != (1, 1, *kspace.shape[-2:]) or not ((mask == 0) | (mask == 1)).all().item():
         raise ValueError("pULA requires the PaDIS binary mask shared by all coils.")
     mask = mask.bool()
+    # 左边返回测量算子 A，右边返回实际观测 y。
+    # 同一张 mask 广播到所有线圈，未采样位置置零。
     return MRI_utils(mask=mask, maps=maps), mask * kspace
 
 
@@ -329,6 +335,7 @@ def main():
                 if raw_measurement.shape[-2:] != (args.image_size, args.image_size):
                     raise ValueError("Measurement FOV differs from --image_size.")
                 operator, measurement = whiten_measurement(raw_operator, raw_measurement, covariance)
+
                 generator = torch.Generator(device=device).manual_seed(args.seed)
                 system = PULASystem(operator, measurement, generator, args.cg_iters, args.cg_rtol)
                 if dps_sigmas:
@@ -363,3 +370,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
