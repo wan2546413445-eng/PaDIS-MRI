@@ -10,7 +10,7 @@
       <excludeFolder url="file://$MODULE_DIR$/logs" />
       <excludeFolder url="file://$MODULE_DIR$/mri_recon" />
     </content>
-    <orderEntry type="jdk" jdkName="$USER_HOME$/anaconda3" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.9.25 (sftp://iv250@192.168.199.250:22/home/iv250/anaconda3/envs/padis_mri/bin/python) (2)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

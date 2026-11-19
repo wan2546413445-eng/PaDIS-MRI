@@ -9,6 +9,7 @@ import random
 import re
 import sys
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +48,10 @@ def parse_args():
     parser.add_argument("--val_dir", required=True)
     parser.add_argument("--out_root", required=True)
     parser.add_argument("--sample_indices", type=sample_list, default="26")
-    parser.add_argument("--grid_mode", choices=("fixed", "cycle_k"), default="fixed")
+    parser.add_argument("--grid_mode", choices=("fixed", "cycle_k", "random_step"), default="fixed")
+    parser.add_argument("--pula_convention", choices=("padis_real", "paper_complex"), default="padis_real")
+    parser.add_argument("--save_pula_handoff", action="store_true",
+                        help="Save the FOV state immediately after pULA and before DPS")
     parser.add_argument("--grid_seed", type=int, default=123)
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--mask_select", type=int, default=7)
@@ -70,6 +74,14 @@ def parse_args():
     parser.add_argument("--dps_sigma_min", type=float, default=0.003)
     parser.add_argument("--dps_sigma_max", type=float, default=10.0)
     parser.add_argument("--dps_rho", type=float, default=7.0)
+    parser.add_argument(
+        "--dps_tail_sigma_max",
+        type=float,
+        help=(
+            "Generate an independent DPS tail from this sigma to "
+            "--dps_sigma_min. If omitted, keep the original behavior."
+        ),
+    )
     noise = parser.add_mutually_exclusive_group()
     noise.add_argument("--noise_dir", help="Explicit directory of legacy PaDIS noise_var_*.pt sidecars")
     noise.add_argument("--noise_complex_var", type=float, help="Calibrated E|n|^2 for already whitened coils")
@@ -90,6 +102,15 @@ def parse_args():
             and 0 < args.dps_sigma_min < args.dps_sigma_max and args.dps_rho > 0
             and args.dps_zeta > 0):
         parser.error("Invalid DPS tail schedule or zeta.")
+    if args.dps_tail_sigma_max is not None:
+        if args.dps_tail_steps < 2:
+            parser.error(
+                "--dps_tail_sigma_max requires --dps_tail_steps >= 2."
+            )
+        if not args.dps_sigma_min < args.dps_tail_sigma_max < math.inf:
+            parser.error(
+                "--dps_tail_sigma_max must be greater than --dps_sigma_min."
+            )
     if args.diagnose_patch_score and args.diagnose_levels is None:
         args.diagnose_levels = sorted({0, args.num_noise_levels // 2, args.num_noise_levels - 1})
     if args.diagnose_patch_score and args.pad < 2:
@@ -207,6 +228,20 @@ def write_json(path, value):
     tmp.replace(path)
 
 
+def claim_config(path, config):
+    # Publish the initial config atomically so concurrent runs cannot replace it.
+    with NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as file:
+        tmp = Path(file.name)
+        try:
+            file.write(json.dumps(config, indent=2, allow_nan=False) + "\n")
+            file.close()
+            os.link(tmp, path)
+        except FileExistsError as error:
+            raise ValueError(f"Another run created {path}. Check its pula_convention or use a different OUT_ROOT.") from error
+        finally:
+            tmp.unlink()
+
+
 def valid_image(path, size):
     import numpy as np
 
@@ -244,17 +279,36 @@ def main():
     from eval_pula.recon_pula import PULASystem, reconstruct, whiten_measurement
     from eval_pula.score_opa import PatchScore, patch_shifts
 
-    shifts = patch_shifts(args.grid_mode, args.langevin_steps, args.pad, args.grid_seed)
+    shifts = [] if args.grid_mode == "random_step" else patch_shifts(
+        args.grid_mode, args.langevin_steps, args.pad, args.grid_seed,
+    )
     diagnostic_shifts = patch_shifts("cycle_k", max(2, args.langevin_steps), args.pad, args.grid_seed) if args.diagnose_patch_score else []
     # BART uses sigma_max at initialization and N lower, log-spaced corrector levels.
     sigmas = [args.sigma_max * (args.sigma_min / args.sigma_max) ** (i / args.num_noise_levels)
               for i in range(args.num_noise_levels + 1)]
     sigmas[-1] = args.sigma_min
     if args.dps_tail_steps:
-        dps_base = karras_schedule(args.dps_base_steps, args.dps_sigma_min,
-                                   args.dps_sigma_max, args.dps_rho)
-        dps_sigmas = dps_base[-args.dps_tail_steps:]
-        pula_levels = sum(sigma >= dps_sigmas[0] for sigma in sigmas[1:])
+        if args.dps_tail_sigma_max is None:
+            # 旧行为：从原始78层调度中截取最后N层。
+            dps_base = karras_schedule(
+                args.dps_base_steps,
+                args.dps_sigma_min,
+                args.dps_sigma_max,
+                args.dps_rho,
+            )
+            dps_sigmas = dps_base[-args.dps_tail_steps:]
+        else:
+            # 新行为：独立生成固定层数的DPS尾段。
+            dps_sigmas = karras_schedule(
+                args.dps_tail_steps,
+                args.dps_sigma_min,
+                args.dps_tail_sigma_max,
+                args.dps_rho,
+            )
+
+        pula_levels = sum(
+            sigma >= dps_sigmas[0] for sigma in sigmas[1:]
+        )
         if pula_levels < 1:
             raise ValueError("DPS tail begins above the first pULA update level.")
         dps_shifts = random_shifts(args.dps_tail_steps * args.dps_inner_loops,
@@ -262,11 +316,22 @@ def main():
     else:
         dps_sigmas, dps_shifts = [], []
         pula_levels = args.num_noise_levels
-    request = {key: value for key, value in vars(args).items() if key not in ("sample_indices", "out_root")}
+    # Handoff saving requests an additional artifact for the same trajectory.
+    pula_shifts_by_level = None
+    if args.grid_mode == "random_step":
+        steps = args.langevin_steps
+        offsets = random_shifts(pula_levels * steps, args.pad, f"pula:{args.grid_seed}")
+        pula_shifts_by_level = [
+            offsets[start:start + steps] for start in range(0, len(offsets), steps)
+        ]
+        shifts = pula_shifts_by_level[0]
+    request = {key: value for key, value in vars(args).items()
+               if key not in ("sample_indices", "out_root", "save_pula_handoff")}
     request.update(
         sampler="opa_pula_dps_tail_v1" if dps_sigmas else "opa_pula_v2", trajectories=1,
         main_output="pula_state_after_original_padis_dps_tail" if dps_sigmas else "single_trajectory_final_state",
-        gradient="paired_real_euclidean", sigma_units="per_real_channel_std",
+        gradient="paired_real_euclidean" if args.pula_convention == "padis_real" else "complex_wirtinger",
+        sigma_units="per_real_channel_std",
         initialization="perturb_and_solve_gaussian_approximation", cg_initial="bart_image_term",
         rng_policy="fixed_per_sample_private_generator", sigma_init=sigmas[0],
         sigma_levels=sigmas[1:pula_levels + 1], pula_levels=pula_levels,
@@ -276,6 +341,14 @@ def main():
         patch_batch=int(os.environ.get("PADIS_PATCH_BATCH", 49)),
         patch_checkpoint=os.environ.get("PADIS_PATCH_CHECKPOINT", "0"),
     )
+    if pula_shifts_by_level is not None:
+        request["pula_shifts_by_level"] = [
+            [list(shift) for shift in level] for level in pula_shifts_by_level
+        ]
+        print(
+            f"pULA partitions: {len(offsets)} random draws, {len(set(offsets))} unique",
+            flush=True,
+        )
     if request["patch_batch"] < 1:
         raise ValueError("PADIS_PATCH_BATCH must be positive.")
     oracle = None
@@ -285,6 +358,11 @@ def main():
         config_path = out / "config.json"
         expected = {**request, "sample_index": index}
         config = read_json(config_path)
+        if isinstance(config, dict):
+            config.setdefault("pula_convention", "padis_real")
+            if config["pula_convention"] != args.pula_convention:
+                raise ValueError(f"Existing pula_convention={config['pula_convention']} for {sample_dir} "
+                                 f"differs from {args.pula_convention}. Use a different OUT_ROOT.")
         if config is not None and (not isinstance(config, dict) or any(config.get(k) != v for k, v in expected.items())):
             raise ValueError(f"Existing configuration differs for {sample_dir}. Use a different OUT_ROOT.")
         if config is None and out.exists() and any(out.iterdir()):
@@ -292,15 +370,20 @@ def main():
 
         name = f"recon_patch_{index}.npy"
         recon_path = out / "recons" / name
+        handoff_path = out / "pula_handoff.npy"
         terminal_path = out / "terminal_denoised" / name
         metric_path = out / "comp_plots" / "results.json"
         timing_path = out / "timing.json"
         diagnostic_path = out / "patch_score_diagnostics.json"
         reconstructed = (valid_image(recon_path, args.image_size) and isinstance(read_json(timing_path), dict)
+                         and (not args.save_pula_handoff or valid_image(handoff_path, args.image_size))
                          and (not args.terminal_denoise or valid_image(terminal_path, args.image_size))
                          and (not args.diagnose_patch_score or isinstance(read_json(diagnostic_path), list)))
         if reconstructed and valid_metrics(metric_path, index):
-            print(f"Skip sample {index}: reconstruction and metrics verified.", flush=True)
+            print(f"Skip sample {index}: reconstruction and metrics verified "
+                  f"(pula_convention={args.pula_convention}).", flush=True)
+            if args.save_pula_handoff:
+                print(f"pULA handoff: {handoff_path}", flush=True)
             continue
 
         if not reconstructed:
@@ -314,15 +397,20 @@ def main():
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
         out.mkdir(parents=True, exist_ok=True)
+        if config is None:
+            claim_config(config_path, {**expected, "noise_calibration": calibration,
+                                       "gpu": torch.cuda.get_device_name(device)})
         with (sample_dir / "run.log").open("a", buffering=1) as log:
             def report(message):
                 print(message, flush=True)
                 print(message, file=log)
 
+            def save_handoff(state):
+                save_image(handoff_path, state)
+                report(f"Saved pULA handoff: {handoff_path}")
+
+            report(f"Sample {index} | pula_convention={args.pula_convention}")
             if not reconstructed:
-                if config is None:
-                    write_json(config_path, {**expected, "noise_calibration": calibration,
-                                             "gpu": torch.cuda.get_device_name(device)})
                 metric_path.unlink(missing_ok=True)
                 timing_path.unlink(missing_ok=True)
                 report(f"Sample {index} | {args.grid_mode} | noise calibration {calibration}")
@@ -334,10 +422,12 @@ def main():
                 raw_operator, raw_measurement = load_measurement(args.val_dir, index, args.mask_select, device)
                 if raw_measurement.shape[-2:] != (args.image_size, args.image_size):
                     raise ValueError("Measurement FOV differs from --image_size.")
-                operator, measurement = whiten_measurement(raw_operator, raw_measurement, covariance)
+                operator, measurement = whiten_measurement(raw_operator, raw_measurement, covariance,
+                                                           convention=args.pula_convention)
 
                 generator = torch.Generator(device=device).manual_seed(args.seed)
-                system = PULASystem(operator, measurement, generator, args.cg_iters, args.cg_rtol)
+                system = PULASystem(operator, measurement, generator, args.cg_iters, args.cg_rtol,
+                                    convention=args.pula_convention)
                 if dps_sigmas:
                     report(f"Hybrid handoff: pULA {pula_levels} levels through sigma={sigmas[pula_levels]:.6g}; "
                            f"DPS last {len(dps_sigmas)} levels from sigma={dps_sigmas[0]:.6g} "
@@ -345,9 +435,11 @@ def main():
                 state, terminal, timing, diagnostics = reconstruct(
                     system, oracle, sigmas, shifts, args.gamma, diagnose_levels=args.diagnose_levels or (),
                     diagnostic_shifts=diagnostic_shifts, terminal=args.terminal_denoise, report=report,
-                    pula_levels=pula_levels, dps_operator=raw_operator, dps_measurement=raw_measurement,
+                    pula_levels=pula_levels, pula_shifts_by_level=pula_shifts_by_level,
+                    dps_operator=raw_operator, dps_measurement=raw_measurement,
                     dps_sigmas=dps_sigmas, dps_shifts=dps_shifts,
                     dps_inner_loops=args.dps_inner_loops, dps_zeta=args.dps_zeta,
+                    save_handoff=save_handoff if args.save_pula_handoff else None,
                 )
                 save_image(recon_path, state)
                 if terminal is not None:

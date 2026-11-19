@@ -7,14 +7,14 @@
 #   y       : 多线圈欠采样 k-space 复数 Tensor，通常为 [1, Nc, H, W]。
 #   A       : 含 sensitivity maps、FFT、mask 的 MRI 前向算子。
 #   A^H     : A 的共轭转置（伴随算子），不是 A 的逆。
-#   sigma   : EDM 噪声标准差，约定为每个实数通道的标准差。
+#   sigma_net : PaDIS 每个实通道的噪声标准差。
+#   sigma_system : padis_real 取 sigma_net，paper_complex 取 sqrt(2) * sigma_net。
 #   B_sigma = A^H A + sigma^(-2) I，M_sigma = B_sigma^(-1)。
 #
 # 核心理论：pULA 按照 x <- x + M_sigma * (梯度项 + Langevin 随机项) 更新；
 #           M_sigma 不显式构造，而是每一步通过 CG 近似求解线性方程。
-# 注意：以下仅增加教学注释，不修改任何计算逻辑或实验参数。
 # ============================================================================
-"""pULA in two real channels, stored as complex image and k-space tensors."""
+"""pULA with real-channel or unit complex variance conventions."""
 
 # defaultdict(list) 累计不同阶段的耗时；contextmanager 用于对代码段计时。
 from collections import defaultdict
@@ -34,13 +34,10 @@ from eval_pula.score_opa import compare_grids, real_channels
 # PyTorch complex64 的 torch.randn 的实、虚部方差各为 1/2；乘 sqrt(2) 后各为 1。
 # 这与下方 whiten_measurement 设定的“每个实数通道测量噪声方差为 1”相对应。
 def real_unit_noise(like, generator):
-    # Native complex randn has variance 1/2 in each real channel.
-    return sqrt(2.0) * torch.randn(like.shape, dtype=like.dtype, device=like.device, generator=generator)
+    return sqrt(2.0) * native_complex_noise(like, generator)
 
 
-# [DPS 随机项] 保留原始 PaDIS 里 complex torch.randn_like 的噪声约定。
-# 因此 pULA 与 DPS 的噪声单位并不相同；不能把这两个函数直接互换。
-# [待核验] 它是否与 EDM 训练期的 sigma 尺度完全一致，属于理论审计的重点。
+# paper_complex 和原始 PaDIS-DPS 都使用 PyTorch 的单位复方差噪声。
 def native_complex_noise(like, generator):
     """Match torch.randn_like(complex): variance 1/2 in each real channel."""
     return torch.randn(like.shape, dtype=like.dtype, device=like.device, generator=generator)
@@ -48,15 +45,15 @@ def native_complex_noise(like, generator):
 
 # ========================= 0. 数据噪声白化 =========================
 # 观测模型 y = A x + n。
-# 白化后记 A_w = W A，y_w = W y，使测量噪声每个实通道方差为 1。
-# 在实部、虚部的欧氏坐标下，高斯测量对数似然的梯度为 A_w^H (y_w - A_w x)。
+# 白化后记 A_w = W A，y_w = W y。白化目标由 convention 决定。
 # 注意：改变的是 MRI 测量算子与数据的单位，图像变量 x 不额外缩放。
-def whiten_measurement(operator, measurement, complex_covariance):
-    """Whiten both SENSE maps and y to unit variance per real channel."""
+def whiten_measurement(operator, measurement, complex_covariance, convention="padis_real"):
+    """Whiten both SENSE maps and y in the selected variance convention."""
+    paper_complex = convention == "paper_complex"
     # 仅有一个“复数方差 E|n|^2”标量时：每实通道方差 = complex_var / 2。
     # 因此 W = sqrt(2 / complex_var)，同时缩放所有 coil maps 与观测 k-space。
     if isinstance(complex_covariance, float):
-        weight = sqrt(2.0 / complex_covariance)
+        weight = 1.0 / sqrt(complex_covariance) if paper_complex else sqrt(2.0 / complex_covariance)
         maps, y = weight * operator.maps, weight * measurement
     # 若噪声在 coil 之间相关，则使用完整的复 Hermitian 协方差矩阵。
     # Cholesky factor 分解 covariance / 2，对应每个实通道单位方差的约定。
@@ -65,7 +62,7 @@ def whiten_measurement(operator, measurement, complex_covariance):
         coils = measurement.shape[1]
         if covariance.shape != (coils, coils) or not torch.allclose(covariance, covariance.mH):
             raise ValueError("Expected a Hermitian complex coil covariance with shape [coils, coils].")
-        factor = torch.linalg.cholesky(covariance / 2).to(measurement.dtype)
+        factor = torch.linalg.cholesky(covariance if paper_complex else covariance / 2).to(measurement.dtype)
 
         # 对 coil 维应用 W；先 reshape 成 [coils, pixels] 再解三角系统。
         # 只作用于测量空间/coil 维，不改变图像域坐标。
@@ -84,18 +81,23 @@ def whiten_measurement(operator, measurement, complex_covariance):
 # PULASystem 封装：A_w、A_w^H、CG、随机扰动和 pULA 更新右端项。
 # 注意：后面 DPS tail 会显式使用“未再白化”的 raw_operator/raw_measurement。
 class PULASystem:
-    """B=W A and b=W y, with W defined by the real-channel noise covariance."""
+    """Matrix-free pULA system in the selected variance convention."""
 
     # 这里的 operator、measurement 是白化后的 A_w 和 y_w。
     # generator 为该样本的独立 torch.Generator，避免依赖全局随机数状态。
-    def __init__(self, operator, measurement, generator, cg_iters, cg_rtol):
+    def __init__(self, operator, measurement, generator, cg_iters, cg_rtol, convention="padis_real"):
         self.operator = operator
         self.y = measurement
         self.generator = generator
         self.cg_iters = cg_iters
         self.cg_rtol = cg_rtol
+        self.convention = convention
+        self.draw_noise = native_complex_noise if convention == "paper_complex" else real_unit_noise
         self.forward_calls = 0
         self.adjoint_calls = 0
+
+    def system_sigma(self, sigma_net):
+        return sqrt(2.0) * sigma_net if self.convention == "paper_complex" else sigma_net
 
     # A_w x。real_channels 将 [B,1,H,W] complex 转为 [B,2,H,W] real。
     # forward_calls 仅用于诊断 MRI 算子被调用多少次。
@@ -110,60 +112,61 @@ class PULASystem:
 
     # [CG 的线性系统]
     #         (A_w^H A_w + sigma^(-2) I) * z = rhs
-    # 即：    B_sigma * z = rhs；理论解 z = M_sigma * rhs。
-    # 这里的 initial 是 CG 求解的“初始猜测”，不是要额外加入的图像噪声。
-    # [待核验] cg_iters=10 时是否收敛，要查看相对线性残差/迭代数。
-    def solve(self, rhs, initial, sigma):
+
+    def solve(self, rhs, initial, sigma_net):
+        sigma_system = self.system_sigma(sigma_net)
         # 无需构造大型矩阵 B_sigma：以函数方式给出 B_sigma 对向量 v 的乘法。
         def normal(v):
-            return self.adjoint(self.forward(v)) + v / sigma ** 2
+            return self.adjoint(self.forward(v)) + v / sigma_system ** 2
 
         return solve_cg(normal, rhs, initial, self.cg_iters, self.cg_rtol)
 
     # [论文随机项：式(11)/(12)附近]
-    # 独立抽取 n1（观测/k-space 空间）和 n2（图像空间），两者每实通道方差为 1。
+    # 依次抽取 n1（观测/k-space 空间）和 n2（图像空间），两种约定复用相同的底层随机数。
     # 构造 eta = A_w^H n1 + sigma^(-1) n2。
     # 因 Cov(eta) = A_w^H A_w + sigma^(-2) I = B_sigma，
     # 故 Cov(M_sigma eta) = M_sigma（假设精确 CG、白化准确）。
-    def noise_rhs(self, template, sigma):
-        measurement_noise = real_unit_noise(self.y, self.generator)
-        image_noise = real_unit_noise(template, self.generator)
-        rhs = self.adjoint(measurement_noise) + image_noise / sigma
+    def noise_rhs(self, template, sigma_net):
+        sigma_system = self.system_sigma(sigma_net)
+        measurement_noise = self.draw_noise(self.y, self.generator)
+        image_noise = self.draw_noise(template, self.generator)
+        rhs = self.adjoint(measurement_noise) + image_noise / sigma_system
         return rhs, image_noise
 
     # ========================= 2. pULA 高斯初始化 =========================
     # 论文的高噪声高斯近似：
-    #   x_init ~ N( M_sigma * A_w^H y_w, M_sigma )  [实数双通道写法]
+    #   x_init 的均值为 M_sigma * A_w^H y_w，协方差按当前单位表示为 M_sigma。
     # 通过“perturb-and-solve”（加扰动再解线性方程）采样：
     #   B_sigma x_init = A_w^H y_w + A_w^H n1 + sigma^(-1) n2。
-    def initialization_rhs(self, sigma):
+    def initialization_rhs(self, sigma_net):
         # 确定性的均值项 A_w^H y_w；它本身不是最终初始化图像。
         mean_rhs = self.adjoint(self.y)
         # 得到 eta = A_w^H n1 + sigma^(-1)n2；同时保留 n2 供 CG warm start。
-        noise, image_noise = self.noise_rhs(mean_rhs, sigma)
+        noise, image_noise = self.noise_rhs(mean_rhs, sigma_net)
         # 返回值 1：CG 右端 b = A_w^H y_w + eta。
         # 返回值 2：CG 初值 z0 = sigma*n2，只为加速线性系统求解。
         # 注意它不是额外增加一次噪声；若 CG 完全收敛，最终结果不依赖 z0。
-        return mean_rhs + noise, sigma * image_noise
+        return mean_rhs + noise, self.system_sigma(sigma_net) * image_noise
 
     # ========================= 3. 每次 pULA Langevin 更新 =========================
     # 目标：x_new = x + delta，其中
     #   delta = gamma*M_sigma*(A_w^H(y_w-A_w x) + score)
     #           + sqrt(2*gamma)*M_sigma*(A_w^H n1 + sigma^(-1)n2)。
     # score 是 PaDIS patch EDM 给出的近似全图 score，并非训练好的全图 score net。
-    def update_rhs(self, x, prior_score, sigma, gamma):
+    def update_rhs(self, x, prior_score, sigma_net, gamma):
+        sigma_system = self.system_sigma(sigma_net)
         # 数据一致性梯度（白化后的原始状态 x）：A_w^H(y_w - A_w x)。
         # 和后面 DPS 的 A^H(y - A*denoised) / 对 denoiser 反传不同。
         likelihood = self.adjoint(self.y - self.forward(x))
         # 每次 Langevin 更新重新生成独立随机扰动（不与初始化噪声复用）。
-        noise, image_noise = self.noise_rhs(x, sigma)
+        noise, image_noise = self.noise_rhs(x, sigma_net)
         diffusion = sqrt(2.0 * gamma)
         # 右端项：B_sigma * delta = gamma*(likelihood + prior_score) + sqrt(2gamma)*eta。
         rhs = gamma * (likelihood + prior_score) + diffusion * noise
         # warm start 用于解 delta 的 CG；它不是公式中单独加到状态上的项。
         # [待核验] 当 CG 迭代有限时，warm start 会影响数值误差与采样统计。
         # BART's state warm start expressed as an increment.
-        initial = gamma * sigma ** 2 * prior_score + diffusion * sigma * image_noise
+        initial = gamma * sigma_system ** 2 * prior_score + diffusion * sigma_system * image_noise
         return rhs, initial
 
 
@@ -172,9 +175,10 @@ class PULASystem:
 # 在 DPS tail 中会用 torch.enable_grad() 局部恢复梯度用于反向传播 DC。
 @torch.no_grad()
 def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), diagnostic_shifts=(),
-                terminal=False, report=print, pula_levels=None, dps_operator=None,
+                terminal=False, report=print, pula_levels=None, pula_shifts_by_level=None,
+                dps_operator=None,
                 dps_measurement=None, dps_sigmas=(), dps_shifts=(), dps_inner_loops=10,
-                dps_zeta=3.0):
+                dps_zeta=3.0, save_handoff=None):
     # sigmas[0] 是高斯初始化 sigma_max；sigmas[1:] 才是各个 Langevin 更新层。
     # 因而日志显示的实际 pULA 层数可能与建立 sigma 网格时的 num_noise_levels 不同。
     """sigmas[0] initializes the chain, sigmas[1:] drive the Langevin levels."""
@@ -234,36 +238,41 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
     # 用前后向钩子统计同一个 denoiser 在 pULA 和 DPS 阶段的调用次数。
     with oracle.net.register_forward_pre_hook(start_forward), oracle.net.register_forward_hook(finish_forward):
         # 对每一个 pULA 噪声标准差 sigma，从高到低运行 K 次 Langevin 更新。
-        for level, sigma in enumerate(selected_sigmas):
-            # 每个噪声层重复 shifts 中的 K 个 patch 网格偏移。
-            # 注意 shifts 在不同噪声层复用，不是每一层重新抽 K 个随机偏移。
-            for step, shift in enumerate(shifts):
+        for level, sigma_net in enumerate(selected_sigmas):
+            sigma_system = system.system_sigma(sigma_net)
+            # Use the offsets for this level when per-update random grids are configured.
+            level_shifts = shifts if pula_shifts_by_level is None else pula_shifts_by_level[level]
+            for step, shift in enumerate(level_shifts):
                 # 当前复数状态 state -> patch EDM 去噪预测 D_patch(state,sigma)。
                 # 这里只用当前 state，不像 DPS 额外先做 x + sigma*noise。
-                denoised = oracle.denoise(state, sigma, shift)
+                denoised = oracle.denoise(state, sigma_net, shift)
                 # 可选诊断：比较同一 state 在不同 patch 网格下的去噪预测差异。
                 # 不是算法必需步骤；只在 diagnose_levels 指定的层运行。
                 if step == 0 and level in diagnose_levels:
                     before = network_calls
-                    predictions = [denoised if other == shift else oracle.denoise(state, sigma, other)
+                    predictions = [denoised if other == shift else oracle.denoise(state, sigma_net, other)
                                    for other in diagnostic_shifts]
                     diagnostic_calls += network_calls - before
-                    diagnostics.append({"level": level, **compare_grids(state, sigma, diagnostic_shifts, predictions)})
+                    diagnostics.append({"level": level,
+                                        **compare_grids(state, sigma_net, diagnostic_shifts, predictions)})
                 # Tweedie 换算：s_patch ≈ (D_patch(state,sigma)-state)/sigma^2。
                 # [理论风险] 拼接的 patch score 不一定是严格的全图概率密度梯度。
-                score = (denoised - state) / sigma ** 2
+                prior_score = (denoised - state) / sigma_system ** 2
                 # 计算 likelihood 梯度 + prior score + Langevin 随机项，构造 CG rhs。
-                rhs, initial = system.update_rhs(state, score, sigma, gamma)
+                rhs, initial = system.update_rhs(state, prior_score, sigma_net, gamma)
                 with section("update_cg_seconds"):
                     # CG 近似求 delta = M_sigma*rhs（不是直接输出新的 x）。
-                    delta, info = system.solve(rhs, initial, sigma)
+                    delta, info = system.solve(rhs, initial, sigma_net)
                 # 完成当前 pULA 一步：x <- x + delta。
                 state = state + delta
                 cg_records.append(info)
             # 只输出该噪声层最后一次 CG 的相对“线性方程”残差。
             # 这里的 CG relative residual ≠ MRI k-space data-consistency residual。
-            report(f"pULA level {level + 1}/{len(selected_sigmas)} sigma={sigma:.5g} "
+            report(f"pULA level {level + 1}/{len(selected_sigmas)} sigma={sigma_net:.5g} "
                    f"CG relative residual={info['relative_residual']}")
+
+        if save_handoff is not None:
+            save_handoff(state.squeeze(1))
 
         # ========================= 5. 切换到 DPS tail =========================
         # 当前 state 就是 pULA 的终态；没有再抽取新的初始图像。
@@ -343,7 +352,8 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         if terminal:
             before = network_calls
             terminal_sigma = float(dps_sigmas[-1]) if dps_sigmas else sigmas[-1]
-            terminal_image = oracle.denoise(state, terminal_sigma, shifts[-1])
+            last_shifts = shifts if pula_shifts_by_level is None else pula_shifts_by_level[-1]
+            terminal_image = oracle.denoise(state, terminal_sigma, last_shifts[-1])
             terminal_calls = network_calls - before
         else:
             terminal_calls = 0
@@ -358,6 +368,7 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
     # 整理前向次数、pULA CG 次数、DPS 反传次数及各阶段耗时。
     # 请注意 main_network_forwards 统计“神经网络 forward 次数”，不等同于噪声层数。
     timing.update(
+        pula_convention=system.convention,
         cg_seconds=timing["initialization_cg_seconds"] + timing["update_cg_seconds"],
         network_forwards=network_calls,
         main_network_forwards=network_calls - diagnostic_calls - terminal_calls,
