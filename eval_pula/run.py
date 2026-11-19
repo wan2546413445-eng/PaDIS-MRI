@@ -13,7 +13,27 @@ from tempfile import NamedTemporaryFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / "eval"), str(ROOT / "train/padis-mri")]
+_EDM_ENVIRONMENT = None
+
+
+def prepare_fullimage_environment():
+    """Import the actual EDM entry point without adding either training tree."""
+    global _EDM_ENVIRONMENT
+    if _EDM_ENVIRONMENT is None:
+        import runpy
+
+        # Match `python eval/run.py`, then execute its real import chain.
+        sys.path[0] = str(ROOT / "eval")
+        _EDM_ENVIRONMENT = runpy.run_path(str(ROOT / "eval/run.py"), run_name="_pula_edm_environment")
+    return _EDM_ENVIRONMENT
+
+
+def load_fullimage_checkpoint(model_path, device):
+    """Use eval/run.py's imported dnnlib/pickle and its EMA loading convention."""
+    edm = prepare_fullimage_environment()
+    with edm["dnnlib"].util.open_url(model_path, verbose=False) as file:
+        model = edm["pickle"].load(file)["ema"]
+    return model.to(device).eval()
 
 
 def sample_list(value):
@@ -48,6 +68,7 @@ def parse_args():
     parser.add_argument("--val_dir", required=True)
     parser.add_argument("--out_root", required=True)
     parser.add_argument("--sample_indices", type=sample_list, default="26")
+    parser.add_argument("--score_mode", choices=("patch", "full"), default="patch")
     parser.add_argument("--grid_mode", choices=("fixed", "cycle_k", "random_step"), default="fixed")
     parser.add_argument("--pula_convention", choices=("padis_real", "paper_complex"), default="padis_real")
     parser.add_argument("--save_pula_handoff", action="store_true",
@@ -90,11 +111,16 @@ def parse_args():
     parser.add_argument("--diagnose_levels", type=sample_list, help="Zero-based noise level indices")
     parser.add_argument("--terminal_denoise", action="store_true", help="Also save a separate denoised image")
     args = parser.parse_args()
-    if min(args.num_noise_levels, args.langevin_steps, args.cg_iters, args.psize, args.image_size,
+    if min(args.num_noise_levels, args.langevin_steps, args.cg_iters, args.image_size,
            args.dps_base_steps, args.dps_inner_loops) < 1:
         parser.error("Positive level, step, CG and image sizes are required.")
-    if args.pad != args.psize or args.image_size % args.psize or args.langevin_steps > args.pad ** 2:
+    if args.score_mode == "patch" and args.psize < 1:
+        parser.error("Positive level, step, CG and image sizes are required.")
+    if args.score_mode == "patch" and (args.pad != args.psize or args.image_size % args.psize
+                                      or args.langevin_steps > args.pad ** 2):
         parser.error("PaDIS shifted grids need pad=psize, image_size divisible by psize and K <= pad^2.")
+    if args.score_mode == "full" and (args.diagnose_patch_score or args.diagnose_levels or args.dps_tail_steps):
+        parser.error("Full-image pULA does not use patch grid diagnostics or the patch DPS tail.")
     if not (0 < args.sigma_min <= args.sigma_max < math.inf and 0 < args.gamma < math.inf
             and 0 <= args.cg_rtol < 1):
         parser.error("Invalid sigma range, gamma or relative CG tolerance.")
@@ -273,16 +299,27 @@ def save_image(path, tensor):
 
 def main():
     args = parse_args()
+    if args.score_mode == "patch":
+        # Keep the original patch import order, before any torch/project import.
+        sys.path[:0] = [str(ROOT), str(ROOT / "eval"), str(ROOT / "train/padis-mri")]
+    else:
+        prepare_fullimage_environment()
     import torch
 
     import dnnlib
     from eval_pula.recon_pula import PULASystem, reconstruct, whiten_measurement
-    from eval_pula.score_opa import PatchScore, patch_shifts
+    if args.score_mode == "patch":
+        from eval_pula.score_opa import PatchScore, patch_shifts
 
-    shifts = [] if args.grid_mode == "random_step" else patch_shifts(
-        args.grid_mode, args.langevin_steps, args.pad, args.grid_seed,
-    )
-    diagnostic_shifts = patch_shifts("cycle_k", max(2, args.langevin_steps), args.pad, args.grid_seed) if args.diagnose_patch_score else []
+        shifts = [] if args.grid_mode == "random_step" else patch_shifts(
+            args.grid_mode, args.langevin_steps, args.pad, args.grid_seed,
+        )
+        diagnostic_shifts = patch_shifts("cycle_k", max(2, args.langevin_steps), args.pad, args.grid_seed) if args.diagnose_patch_score else []
+    else:
+        from eval_pula.score_fullimage import FullImageScoreOracle, checkpoint_environment
+
+        # K iteration slots for the unchanged sampler, without any patch grid.
+        shifts, diagnostic_shifts = [None] * args.langevin_steps, []
     # BART uses sigma_max at initialization and N lower, log-spaced corrector levels.
     sigmas = [args.sigma_max * (args.sigma_min / args.sigma_max) ** (i / args.num_noise_levels)
               for i in range(args.num_noise_levels + 1)]
@@ -318,7 +355,7 @@ def main():
         pula_levels = args.num_noise_levels
     # Handoff saving requests an additional artifact for the same trajectory.
     pula_shifts_by_level = None
-    if args.grid_mode == "random_step":
+    if args.score_mode == "patch" and args.grid_mode == "random_step":
         steps = args.langevin_steps
         offsets = random_shifts(pula_levels * steps, args.pad, f"pula:{args.grid_seed}")
         pula_shifts_by_level = [
@@ -327,6 +364,8 @@ def main():
         shifts = pula_shifts_by_level[0]
     request = {key: value for key, value in vars(args).items()
                if key not in ("sample_indices", "out_root", "save_pula_handoff")}
+    if args.score_mode == "patch":
+        request.pop("score_mode")  # Preserve existing config/resume comparisons.
     request.update(
         sampler="opa_pula_dps_tail_v1" if dps_sigmas else "opa_pula_v2", trajectories=1,
         main_output="pula_state_after_original_padis_dps_tail" if dps_sigmas else "single_trajectory_final_state",
@@ -336,11 +375,17 @@ def main():
         rng_policy="fixed_per_sample_private_generator", sigma_init=sigmas[0],
         sigma_levels=sigmas[1:pula_levels + 1], pula_levels=pula_levels,
         pula_handoff_sigma=sigmas[pula_levels], dps_tail_sigmas=dps_sigmas,
-        shifts=[list(shift) for shift in shifts], diagnostic_shifts=[list(shift) for shift in diagnostic_shifts],
+        shifts=[None if shift is None else list(shift) for shift in shifts], diagnostic_shifts=[list(shift) for shift in diagnostic_shifts],
         dps_shifts=[list(shift) for shift in dps_shifts],
-        patch_batch=int(os.environ.get("PADIS_PATCH_BATCH", 49)),
-        patch_checkpoint=os.environ.get("PADIS_PATCH_CHECKPOINT", "0"),
     )
+    if args.score_mode == "patch":
+        request.update(patch_batch=int(os.environ.get("PADIS_PATCH_BATCH", 49)),
+                       patch_checkpoint=os.environ.get("PADIS_PATCH_CHECKPOINT", "0"))
+    else:
+        for key in ("grid_mode", "grid_seed", "pad", "psize"):
+            request.pop(key)
+        request.update(sampler="fullimage_pula_v2", score_oracle="FullImageScoreOracle",
+                       patch_stitching=False, position_encoding=False)
     if pula_shifts_by_level is not None:
         request["pula_shifts_by_level"] = [
             [list(shift) for shift in level] for level in pula_shifts_by_level
@@ -349,11 +394,11 @@ def main():
             f"pULA partitions: {len(offsets)} random draws, {len(set(offsets))} unique",
             flush=True,
         )
-    if request["patch_batch"] < 1:
+    if args.score_mode == "patch" and request["patch_batch"] < 1:
         raise ValueError("PADIS_PATCH_BATCH must be positive.")
     oracle = None
     for index in args.sample_indices:
-        sample_dir = Path(args.out_root) / args.grid_mode / f"sample_{index}"
+        sample_dir = Path(args.out_root) / (args.grid_mode if args.score_mode == "patch" else "FullImage") / f"sample_{index}"
         out = sample_dir / "evaluate"
         config_path = out / "config.json"
         expected = {**request, "sample_index": index}
@@ -391,6 +436,8 @@ def main():
             if config is not None and config.get("noise_calibration") != calibration:
                 raise ValueError(f"Noise calibration differs for {sample_dir}. Use a different OUT_ROOT.")
         if not torch.cuda.is_available():
+            if args.score_mode == "full":
+                raise RuntimeError("Full-image pULA inference requires CUDA.")
             raise RuntimeError("PaDIS patch inference requires CUDA. Use tools/test_pula_numerics.py for CPU verification.")
         torch.cuda.set_device(0)
         device = torch.device("cuda", 0)
@@ -413,12 +460,25 @@ def main():
             if not reconstructed:
                 metric_path.unlink(missing_ok=True)
                 timing_path.unlink(missing_ok=True)
-                report(f"Sample {index} | {args.grid_mode} | noise calibration {calibration}")
+                report(f"Sample {index} | {args.grid_mode if args.score_mode == 'patch' else 'FullImage'} | noise calibration {calibration}")
+                if args.score_mode == "full":
+                    report("score_mode=full\nscore_oracle=FullImageScoreOracle\n"
+                           "patch_stitching=False\nposition_encoding=False")
+                    report(f"checkpoint={args.model_path} pula_convention={args.pula_convention} "
+                           f"sigma_max={args.sigma_max} sigma_min={args.sigma_min} "
+                           f"N={args.num_noise_levels} K={args.langevin_steps} gamma={args.gamma} "
+                           f"cg_iters={args.cg_iters} cg_rtol={args.cg_rtol} seed={args.seed}")
                 if oracle is None:
                     report(f"Loading {args.model_path}")
-                    with dnnlib.util.open_url(args.model_path, verbose=False) as file:
-                        net = pickle.load(file)["ema"].to(device).eval()
-                    oracle = PatchScore(net, args.image_size, args.pad, args.psize, device)
+                    if args.score_mode == "patch":
+                        with dnnlib.util.open_url(args.model_path, verbose=False) as file:
+                            net = pickle.load(file)["ema"].to(device).eval()
+                        oracle = PatchScore(net, args.image_size, args.pad, args.psize, device)
+                    else:
+                        net = load_fullimage_checkpoint(args.model_path, device)
+                        oracle = FullImageScoreOracle(net)
+                        oracle.checkpoint_environment = checkpoint_environment(net)
+                        report(f"Checkpoint environment: {oracle.checkpoint_environment}")
                 raw_operator, raw_measurement = load_measurement(args.val_dir, index, args.mask_select, device)
                 if raw_measurement.shape[-2:] != (args.image_size, args.image_size):
                     raise ValueError("Measurement FOV differs from --image_size.")
@@ -428,6 +488,8 @@ def main():
                 generator = torch.Generator(device=device).manual_seed(args.seed)
                 system = PULASystem(operator, measurement, generator, args.cg_iters, args.cg_rtol,
                                     convention=args.pula_convention)
+                if args.score_mode == "full":
+                    oracle.first_forward = None
                 if dps_sigmas:
                     report(f"Hybrid handoff: pULA {pula_levels} levels through sigma={sigmas[pula_levels]:.6g}; "
                            f"DPS last {len(dps_sigmas)} levels from sigma={dps_sigmas[0]:.6g} "
@@ -441,6 +503,17 @@ def main():
                     dps_inner_loops=args.dps_inner_loops, dps_zeta=args.dps_zeta,
                     save_handoff=save_handoff if args.save_pula_handoff else None,
                 )
+                if args.score_mode == "full":
+                    iterations = [timing["initialization_cg"]["iterations"]] + [
+                        row["iterations"] for row in timing["update_cg"]]
+                    timing.update(score_mode="full", score_oracle="FullImageScoreOracle",
+                                  patch_stitching=False, position_encoding=False,
+                                  cg_iteration_range=[min(iterations), max(iterations)],
+                                  checkpoint_environment=oracle.checkpoint_environment,
+                                  **oracle.first_forward)
+                    report(f"FullImage first forward: {oracle.first_forward}")
+                    report(f"network_forwards={timing['network_forwards']} cg_solves={timing['cg_solves']} "
+                           f"cg_iteration_range={timing['cg_iteration_range']}")
                 save_image(recon_path, state)
                 if terminal is not None:
                     save_image(terminal_path, terminal)
