@@ -110,7 +110,21 @@ def parse_args():
     parser.add_argument("--diagnose_patch_score", action="store_true")
     parser.add_argument("--diagnose_levels", type=sample_list, help="Zero-based noise level indices")
     parser.add_argument("--terminal_denoise", action="store_true", help="Also save a separate denoised image")
+    parser.add_argument("--num_trajectories", type=int, default=None,
+                        help="Opt into single-process trajectory batching; omitted keeps the legacy runner")
+    parser.add_argument("--trajectory_batch_size", type=int, default=1)
+    parser.add_argument("--trajectory_seed_start", type=int, default=None)
+    parser.add_argument("--aggregate_counts", type=sample_list, default="1,2,3,5,8,10")
+    parser.add_argument("--save_each_trajectory", type=lambda x: bool_value(x), default=True)
+    parser.add_argument("--measure_cuda_memory", type=lambda x: bool_value(x), default=True)
     args = parser.parse_args()
+    if args.num_trajectories is not None:
+        if min(args.num_trajectories, args.trajectory_batch_size) < 1:
+            parser.error("Trajectory count and batch size must be positive.")
+        if args.score_mode != "patch" or args.dps_tail_steps or args.terminal_denoise or args.diagnose_patch_score or args.save_pula_handoff:
+            parser.error("Trajectory batching supports pure block pULA raw states only.")
+        if any(count < 1 for count in args.aggregate_counts):
+            parser.error("aggregate_counts must be positive.")
     if min(args.num_noise_levels, args.langevin_steps, args.cg_iters, args.image_size,
            args.dps_base_steps, args.dps_inner_loops) < 1:
         parser.error("Positive level, step, CG and image sizes are required.")
@@ -149,17 +163,31 @@ def parse_args():
     return args
 
 
-def load_measurement(val_dir, index, mask_select, device):
+def bool_value(value):
+    if value.lower() not in ("true", "false"):
+        raise argparse.ArgumentTypeError("Expected true or false.")
+    return value.lower() == "true"
+
+
+def sigma_schedule(args):
+    sigmas = [args.sigma_max * (args.sigma_min / args.sigma_max) ** (i / args.num_noise_levels)
+              for i in range(args.num_noise_levels + 1)]
+    sigmas[-1] = args.sigma_min
+    return sigmas
+
+
+def load_measurement(val_dir, index, mask_select, device, data=None):
     import torch
     from inverse_operators import MRI_utils, fftmod
 
     # Same .pt fields and orientation as DPSHyperEvaluator._load_sample.
-    data = torch.load(Path(val_dir) / f"sample_{index}.pt", map_location="cpu", weights_only=False)
+    if data is None:
+        data = torch.load(Path(val_dir) / f"sample_{index}.pt", map_location="cpu", weights_only=False)
     # 线圈灵敏度图。沿用 PaDIS 的 FFT 调制约定，
     # [None] 加一个 batch 维，得到 [1, 线圈数, H, W]。
-    maps = fftmod(data["s_map"])[None].to(device=device, dtype=torch.complex64)
+    maps = fftmod(data["s_map"].clone())[None].to(device=device, dtype=torch.complex64)
     # 多线圈 k-space。
-    kspace = fftmod(data["ksp"])[None].to(device=device, dtype=torch.complex64)
+    kspace = fftmod(data["ksp"].clone())[None].to(device=device, dtype=torch.complex64)
     # mask_select=4，所以取 mask_4。形状是 [1, 1, H, W]。
     mask = data[f"mask_{mask_select}"][None].to(device)
     if mask.shape != (1, 1, *kspace.shape[-2:]) or not ((mask == 0) | (mask == 1)).all().item():
@@ -201,7 +229,7 @@ def sidecar_path(val, index, noise_dir):
     )
 
 
-def load_noise(args, index):
+def load_noise(args, index, sample=None):
     import numpy as np
     import torch
 
@@ -226,7 +254,8 @@ def load_noise(args, index):
                 "Provide --noise_complex_var, --noise_covariance or --noise_dir."
             )
         sample_path = Path(args.val_dir) / f"sample_{index}.pt"
-        sample = torch.load(sample_path, map_location="cpu", weights_only=False)
+        if sample is None:
+            sample = torch.load(sample_path, map_location="cpu", weights_only=False)
         norm_const = float(sample["norm_consts_99"])
         if not math.isfinite(norm_const) or norm_const <= 0:
             raise ValueError(f"Sample {index}: invalid norm_consts_99={norm_const} in {sample_path}.")
@@ -306,6 +335,10 @@ def main():
         prepare_fullimage_environment()
     import torch
 
+    if args.num_trajectories is not None:
+        from eval_pula.trajectories import run_trajectories
+        return run_trajectories(args)
+
     import dnnlib
     from eval_pula.recon_pula import PULASystem, reconstruct, whiten_measurement
     if args.score_mode == "patch":
@@ -321,9 +354,7 @@ def main():
         # K iteration slots for the unchanged sampler, without any patch grid.
         shifts, diagnostic_shifts = [None] * args.langevin_steps, []
     # BART uses sigma_max at initialization and N lower, log-spaced corrector levels.
-    sigmas = [args.sigma_max * (args.sigma_min / args.sigma_max) ** (i / args.num_noise_levels)
-              for i in range(args.num_noise_levels + 1)]
-    sigmas[-1] = args.sigma_min
+    sigmas = sigma_schedule(args)
     if args.dps_tail_steps:
         if args.dps_tail_sigma_max is None:
             # 旧行为：从原始78层调度中截取最后N层。
@@ -364,6 +395,9 @@ def main():
         shifts = pula_shifts_by_level[0]
     request = {key: value for key, value in vars(args).items()
                if key not in ("sample_indices", "out_root", "save_pula_handoff")}
+    for key in ("num_trajectories", "trajectory_batch_size", "trajectory_seed_start",
+                "aggregate_counts", "save_each_trajectory", "measure_cuda_memory"):
+        request.pop(key)
     if args.score_mode == "patch":
         request.pop("score_mode")  # Preserve existing config/resume comparisons.
     request.update(
