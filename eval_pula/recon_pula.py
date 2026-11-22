@@ -365,6 +365,13 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
             # 切片用于从 padded 复数图像中取出真正的 384x384 FOV。
             fov = slice(oracle.pad, oracle.pad + oracle.image_size)
             shift_index = 0
+            # Diagnostic-only snapshot configuration; no effect when unset.
+            import os
+            trace_directory = os.environ.get("PA_DPS_TRACE_DIR")
+            trace_levels = (
+                {int(item.strip()) for item in os.environ.get("PA_DPS_TRACE_LEVELS", "4,8,12,16,20,24").split(",") if item.strip()}
+                if trace_directory else set()
+            )
             # 只在 DPS tail 的反传阶段开启自动微分；pULA 本身仍无梯度。
             with torch.enable_grad():
                 # 按原始 PaDIS 的 Karras/VE 调度（末 N 层）进行 DPS。
@@ -414,6 +421,15 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                     # 屏幕上打印的是该噪声层最后一个 inner-loop 的残差。
                     report(f"DPS tail level {outer + 1}/{len(dps_sigmas)} sigma={sigma:.5g} "
                            f"residual={residual_norm.detach().mean().item():.6g}")
+                    # Save the actual post-update FOV after *all* inner loops of this DPS level.
+                    # Detach before CPU transfer: no autograd, no extra network/CG/RNG calls.
+                    if trace_directory and (outer + 1) in trace_levels:
+                        from pathlib import Path
+                        import numpy as np
+                        trace_path = Path(trace_directory)
+                        trace_path.mkdir(parents=True, exist_ok=True)
+                        snapshot = padded[:, :, fov, fov].detach().squeeze(1).cpu().numpy()
+                        np.save(trace_path / f"dps_level_{outer + 1:02d}.npy", snapshot)
             # 完成 DPS 后，去掉 padding，保留 FOV 内的最后状态。
             state = padded[:, :, fov, fov].detach()
             if device.type == "cuda":
