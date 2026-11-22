@@ -10,17 +10,7 @@ import tqdm
 
 from denoise_padding import denoisedFromPatches, getIndices
 
-from .config import (
-    INNER_LOOPS,
-    PAD,
-    PATCH_SIZE,
-    RHO,
-    SIGMA_MAX,
-    SIGMA_MIN,
-    STEPS,
-    ZETA,
-    LGFCConfig,
-)
+from .config import LGFCConfig
 from .lgfc_core import apply_lgfc, update_reference
 
 
@@ -38,13 +28,20 @@ DIAGNOSTIC_FIELDS = [
 ]
 
 
-def _ve_schedule(net, device: torch.device) -> torch.Tensor:
-    indices = torch.arange(STEPS, dtype=torch.float64, device=device)
+def _ve_schedule(
+    net,
+    device: torch.device,
+    num_steps: int,
+    sigma_min: float,
+    sigma_max: float,
+    rho: float,
+) -> torch.Tensor:
+    indices = torch.arange(num_steps, dtype=torch.float64, device=device)
     schedule = (
-        SIGMA_MAX ** (1.0 / RHO)
-        + indices / (STEPS - 1.0)
-        * (SIGMA_MIN ** (1.0 / RHO) - SIGMA_MAX ** (1.0 / RHO))
-    ) ** RHO
+        sigma_max ** (1.0 / rho)
+        + indices / (num_steps - 1.0)
+        * (sigma_min ** (1.0 / rho) - sigma_max ** (1.0 / rho))
+    ) ** rho
     schedule = net.round_sigma(schedule)
     return torch.cat(
         [schedule, torch.zeros(1, dtype=torch.float64, device=device)]
@@ -76,28 +73,38 @@ def dps2_lgfc(
     inverseop,
     measurement: torch.Tensor,
     lgfc_config: LGFCConfig,
+    num_steps: int,
+    inner_loops: int,
+    zeta: float,
+    pad: int,
+    patch_size: int,
+    sigma_min: float,
+    sigma_max: float,
+    rho: float,
     save_dir: Optional[str] = None,
     tag: Optional[str] = None,
     save_diagnostics: bool = False,
     randn_like=torch.randn_like,
 ):
-    """Run the fixed 78 x 10 PaDIS sampler with post-inner-loop LGFC."""
+    """Run configurable PaDIS sampling with post-inner-loop LGFC."""
 
     net.eval()
     width = latents.shape[-1]
-    patch_count = width // PATCH_SIZE + 1
+    patch_count = width // patch_size + 1
     spaced = np.linspace(
-        0, (patch_count - 1) * PATCH_SIZE, patch_count, dtype=int
+        0, (patch_count - 1) * patch_size, patch_count, dtype=int
     )
 
     x_init = inverseop.adjoint(measurement).detach()
     height, fov_width = x_init.shape[-2:]
-    x = torch.nn.functional.pad(x_init, (PAD, PAD, PAD, PAD), "constant", 0)
-    t_steps = _ve_schedule(net, x.device)
+    x = torch.nn.functional.pad(x_init, (pad, pad, pad, pad), "constant", 0)
+    t_steps = _ve_schedule(
+        net, x.device, num_steps, sigma_min, sigma_max, rho
+    )
     diagnostics = [] if save_diagnostics else None
 
     for outer_index, (t_cur, t_next) in tqdm.tqdm(
-        enumerate(zip(t_steps[:-1], t_steps[1:])), total=STEPS
+        enumerate(zip(t_steps[:-1], t_steps[1:])), total=num_steps
     ):
         del t_next
         outer_step = outer_index + 1
@@ -107,8 +114,8 @@ def dps2_lgfc(
         # LGFC 1/3: reset current-outer reference
         reference = None
 
-        for _ in range(INNER_LOOPS):
-            indices = getIndices(spaced, patch_count, PAD, PATCH_SIZE)
+        for _ in range(inner_loops):
+            indices = getIndices(spaced, patch_count, pad, patch_size)
             x = x.detach().requires_grad_(True)
             x_noisy = x + t_cur * randn_like(x)
             x_real_noisy = torch.view_as_real(x_noisy.squeeze(1)).permute(0, 3, 1, 2)
@@ -128,7 +135,7 @@ def dps2_lgfc(
 
             # LGFC 2/3: update reference from current denoised prediction
             denoised_fov = denoised[
-                :, :, PAD : PAD + height, PAD : PAD + fov_width
+                :, :, pad : pad + height, pad : pad + fov_width
             ]
             reference = update_reference(
                 reference,
@@ -139,7 +146,7 @@ def dps2_lgfc(
 
             score = (denoised - x_noisy) / (t_cur ** 2)
             cropped_x0hat = denoised_real[
-                :, :, PAD : PAD + width, PAD : PAD + width
+                :, :, pad : pad + width, pad : pad + width
             ]
             residual = measurement - inverseop.forward(cropped_x0hat)
             residual_flat = residual.reshape(x.shape[0], -1)
@@ -147,10 +154,10 @@ def dps2_lgfc(
             sse = torch.sum(sse_individual)
             likelihood_grad = torch.autograd.grad(sse, x)[0]
             x = x - (
-                ZETA / torch.sqrt(sse_individual)[:, None, None, None]
+                zeta / torch.sqrt(sse_individual)[:, None, None, None]
             ) * likelihood_grad
 
-            if outer_index < STEPS - 1:
+            if outer_index < num_steps - 1:
                 x = x + (alpha / 2) * score + torch.sqrt(alpha) * randn_like(x)
             else:
                 x = x + (alpha / 2) * score
@@ -164,7 +171,7 @@ def dps2_lgfc(
         if should_correct:
             # LGFC 3/3: correct the state after all inner loops
             x_fov = x[
-                :, :, PAD : PAD + height, PAD : PAD + fov_width
+                :, :, pad : pad + height, pad : pad + fov_width
             ].detach()
             x_corrected, stats = apply_lgfc(
                 x_fov=x_fov,
@@ -177,7 +184,7 @@ def dps2_lgfc(
             )
             x_next = x.detach().clone()
             x_next[
-                :, :, PAD : PAD + height, PAD : PAD + fov_width
+                :, :, pad : pad + height, pad : pad + fov_width
             ] = x_corrected
             x = x_next
 
@@ -188,6 +195,6 @@ def dps2_lgfc(
         _save_diagnostics(diagnostics, save_dir, tag)
 
     reconstruction = x[
-        :, :, PAD : PAD + width, PAD : PAD + width
+        :, :, pad : pad + width, pad : pad + width
     ].detach().squeeze(1)
     return reconstruction, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0

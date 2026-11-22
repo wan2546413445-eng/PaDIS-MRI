@@ -28,6 +28,7 @@ import torch.nn.functional as F
 # CG 是求解 B_sigma * delta = rhs 的数值方法；real_channels 把复数图转成两实数通道。
 from eval_pula.cg import solve_cg
 from eval_pula.score_opa import compare_grids, real_channels
+from eval_pula.pa_balance import VARIANTS, PABalanceStats, balanced_coefficients, edm_sigma_data
 
 
 # [pULA 随机项] 构造每个实数通道方差为 1 的独立高斯噪声。
@@ -95,6 +96,31 @@ class PULASystem:
         self.draw_noise = native_complex_noise if convention == "paper_complex" else real_unit_noise
         self.forward_calls = 0
         self.adjoint_calls = 0
+        self.reset_update()
+
+    def reset_update(self):
+        # Initialization always uses the original H and original noise.
+        self.pula_variant = "baseline"
+        self.normal_scale = 1.0
+        self.normal_diagonal = None
+
+    def configure_update(self, variant, sigma_net, gamma, sigma_data=None, variance=None):
+        if variant not in VARIANTS:
+            raise ValueError(f"Unknown pula_variant: {variant}")
+        self.reset_update()
+        self.pula_variant = variant
+        if variant in ("balanced_k0", "balanced_full"):
+            template = self.adjoint_template
+            self.normal_scale, self.normal_diagonal = balanced_coefficients(
+                template, sigma_net, sigma_data, gamma, self.convention,
+                variance if variant == "balanced_full" else None,
+            )
+
+    def normal(self, v, sigma_net):
+        if self.normal_diagonal is None:
+            # Keep the legacy arithmetic (including division) unchanged.
+            return self.adjoint(self.forward(v)) + v / self.system_sigma(sigma_net) ** 2
+        return self.normal_scale * self.adjoint(self.forward(v)) + self.normal_diagonal * v
 
     def system_sigma(self, sigma_net):
         return sqrt(2.0) * sigma_net if self.convention == "paper_complex" else sigma_net
@@ -114,10 +140,9 @@ class PULASystem:
     #         (A_w^H A_w + sigma^(-2) I) * z = rhs
 
     def solve(self, rhs, initial, sigma_net):
-        sigma_system = self.system_sigma(sigma_net)
         # 无需构造大型矩阵 B_sigma：以函数方式给出 B_sigma 对向量 v 的乘法。
         def normal(v):
-            return self.adjoint(self.forward(v)) + v / sigma_system ** 2
+            return self.normal(v, sigma_net)
 
         return solve_cg(normal, rhs, initial, self.cg_iters, self.cg_rtol)
 
@@ -141,6 +166,8 @@ class PULASystem:
     def initialization_rhs(self, sigma_net):
         # 确定性的均值项 A_w^H y_w；它本身不是最终初始化图像。
         mean_rhs = self.adjoint(self.y)
+        # Shape/device/dtype only; no additional MRI operator application.
+        self.adjoint_template = mean_rhs
         # 得到 eta = A_w^H n1 + sigma^(-1)n2；同时保留 n2 供 CG warm start。
         noise, image_noise = self.noise_rhs(mean_rhs, sigma_net)
         # 返回值 1：CG 右端 b = A_w^H y_w + eta。
@@ -161,12 +188,18 @@ class PULASystem:
         # 每次 Langevin 更新重新生成独立随机扰动（不与初始化噪声复用）。
         noise, image_noise = self.noise_rhs(x, sigma_net)
         diffusion = sqrt(2.0 * gamma)
+        if self.pula_variant == "noise08":
+            noise = 0.8 * noise
+            image_noise = 0.8 * image_noise
         # 右端项：B_sigma * delta = gamma*(likelihood + prior_score) + sqrt(2gamma)*eta。
         rhs = gamma * (likelihood + prior_score) + diffusion * noise
         # warm start 用于解 delta 的 CG；它不是公式中单独加到状态上的项。
         # [待核验] 当 CG 迭代有限时，warm start 会影响数值误差与采样统计。
         # BART's state warm start expressed as an increment.
-        initial = gamma * sigma_system ** 2 * prior_score + diffusion * sigma_system * image_noise
+        if self.normal_diagonal is not None:
+            initial = (gamma * prior_score + diffusion * image_noise / sigma_system) / self.normal_diagonal
+        else:
+            initial = gamma * sigma_system ** 2 * prior_score + diffusion * sigma_system * image_noise
         return rhs, initial
 
 
@@ -178,13 +211,19 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                 terminal=False, report=print, pula_levels=None, pula_shifts_by_level=None,
                 dps_operator=None,
                 dps_measurement=None, dps_sigmas=(), dps_shifts=(), dps_inner_loops=10,
-                dps_zeta=3.0, save_handoff=None):
+                dps_zeta=3.0, save_handoff=None, pula_variant="baseline",
+                pa_block_size=8, pa_epsilon=1e-12):
     # sigmas[0] 是高斯初始化 sigma_max；sigmas[1:] 才是各个 Langevin 更新层。
     # 因而日志显示的实际 pULA 层数可能与建立 sigma 网格时的 num_noise_levels 不同。
     """sigmas[0] initializes the chain, sigmas[1:] drive the Langevin levels."""
     # events：分别记录初始化 CG、Langevin CG、网络 forward、DPS backward 等耗时。
     events = defaultdict(list)
     device = system.y.device
+    if pula_variant not in VARIANTS:
+        raise ValueError(f"Unknown pula_variant: {pula_variant}")
+    balanced = pula_variant in ("balanced_k0", "balanced_full")
+    sigma_data = edm_sigma_data(oracle.net) if balanced else getattr(oracle.net, "sigma_data", None)
+    pa_records = []
 
     # 计时上下文：GPU 使用 CUDA Event，更接近实际 kernel 执行时间。
     @contextmanager
@@ -222,6 +261,7 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         network_calls += 1
 
     # [程序第一次真正生成 x]：只有初始化的 CG 求解，没有运行 patch EDM。
+    system.reset_update()
     init_rhs, initial = system.initialization_rhs(sigmas[0])
     with section("initialization_cg_seconds"):
         # state 是复数图像空间的 pULA 初始随机样本。
@@ -235,11 +275,23 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
     # 仅保留 DPS 开始之前的 pULA 噪声层。
     # 比如用户当前日志中实际是 23 层 pULA，而非必须执行完整的 48 层调度。
     selected_sigmas = sigmas[1:] if pula_levels is None else sigmas[1:pula_levels + 1]
+    trackers = ([PABalanceStats(sigma_data, oracle.pad, getattr(oracle, "psize", oracle.pad),
+                                pa_block_size, pa_epsilon) for _ in range(state.shape[0])]
+                if pula_variant == "balanced_full" else [])
     # 用前后向钩子统计同一个 denoiser 在 pULA 和 DPS 阶段的调用次数。
     with oracle.net.register_forward_pre_hook(start_forward), oracle.net.register_forward_hook(finish_forward):
         # 对每一个 pULA 噪声标准差 sigma，从高到低运行 K 次 Langevin 更新。
         for level, sigma_net in enumerate(selected_sigmas):
             sigma_system = system.system_sigma(sigma_net)
+            if trackers:
+                with section("pa_statistics_seconds"):
+                    variances = [tracker.begin_level(sigma_net, state[j:j+1])
+                                 for j, tracker in enumerate(trackers)]
+                variance = torch.cat(variances)
+            else:
+                variance = None
+            if pula_variant != "baseline":
+                system.configure_update(pula_variant, sigma_net, gamma, sigma_data, variance)
             # Use the offsets for this level when per-update random grids are configured.
             level_shifts = shifts if pula_shifts_by_level is None else pula_shifts_by_level[level]
             for step, shift in enumerate(level_shifts):
@@ -258,6 +310,11 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                 # Tweedie 换算：s_patch ≈ (D_patch(state,sigma)-state)/sigma^2。
                 # [理论风险] 拼接的 patch score 不一定是严格的全图概率密度梯度。
                 prior_score = (denoised - state) / sigma_system ** 2
+                if trackers:
+                    with section("pa_statistics_seconds"):
+                        step_shifts = [shift] if isinstance(shift[0], int) else shift
+                        for j, tracker in enumerate(trackers):
+                            tracker.observe(state[j:j+1], denoised[j:j+1], step_shifts[j])
                 # 计算 likelihood 梯度 + prior score + Langevin 随机项，构造 CG rhs。
                 rhs, initial = system.update_rhs(state, prior_score, sigma_net, gamma)
                 with section("update_cg_seconds"):
@@ -266,6 +323,21 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                 # 完成当前 pULA 一步：x <- x + delta。
                 state = state + delta
                 cg_records.append(info)
+            if trackers:
+                with section("pa_statistics_seconds"):
+                    rows = [tracker.end_level(gamma) for tracker in trackers]
+            else:
+                rows = [dict(sigma=sigma_net, gamma=gamma, v_mean=0., v_max=0.,
+                             relative_noise_ratio_mean=0., relative_noise_ratio_max=0., state_slope=0.,
+                             next_state_slope=0., innovation_mean=0., innovation_max=0.,
+                             innovation_pairs=0) for _ in range(state.shape[0])]
+            pa_records.append({"level": level, "per_trajectory": rows})
+            if balanced:
+                report(f"PA {pula_variant} sigma={sigma_net:.5g} sigma_data={sigma_data} "
+                       f"v_mean={rows[0]['v_mean']:.5g} v_max={rows[0]['v_max']:.5g} "
+                       f"ratio_mean={rows[0]['relative_noise_ratio_mean']:.5g} "
+                       f"ratio_max={rows[0]['relative_noise_ratio_max']:.5g} "
+                       f"slope={rows[0]['state_slope']:.5g} innovation={rows[0]['innovation_mean']:.5g}")
             # 只输出该噪声层最后一次 CG 的相对“线性方程”残差。
             # 这里的 CG relative residual ≠ MRI k-space data-consistency residual。
             report(f"pULA level {level + 1}/{len(selected_sigmas)} sigma={sigma_net:.5g} "
@@ -368,6 +440,10 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
     # 整理前向次数、pULA CG 次数、DPS 反传次数及各阶段耗时。
     # 请注意 main_network_forwards 统计“神经网络 forward 次数”，不等同于噪声层数。
     timing.update(
+        pula_variant=pula_variant, sigma_data=sigma_data, gamma=gamma,
+        pa_balance=pa_records,
+        logical_updates=len(cg_records) + len(dps_records),
+        logical_nfe=len(cg_records) + len(dps_records),
         pula_convention=system.convention,
         cg_seconds=timing["initialization_cg_seconds"] + timing["update_cg_seconds"],
         network_forwards=network_calls,
@@ -383,6 +459,7 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         dps_tail_seconds=dps_tail_seconds,
         initialization_cg=init_info, update_cg=cg_records, dps_tail=dps_records,
     )
+    timing["pula_seconds"] = timing["reconstruction_seconds"] - dps_tail_seconds
     if device.type == "cuda":
         timing.update(
             peak_allocated_gib=torch.cuda.max_memory_allocated(device) / 2 ** 30,

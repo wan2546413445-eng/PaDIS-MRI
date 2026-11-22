@@ -25,6 +25,7 @@ class PatchScore:
 
         self.net = net
         self.pad = pad
+        self.psize = psize
         self.image_size = image_size
         self.denoise_patches = denoisedFromPatches
         patches = image_size // psize + 1

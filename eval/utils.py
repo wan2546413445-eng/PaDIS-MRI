@@ -120,6 +120,7 @@ def post_eval_normalize(
     plot_dir: str,
     json_basename: str = "results",
     mask_select: Optional[int] = None,
+    sample_cache: Optional[Dict] = None,
 ) -> Dict:
     """
     Post-process reconstructions: normalize by FS k-space ACS-derived constant,
@@ -201,11 +202,12 @@ def post_eval_normalize(
         try:
             recon = torch.from_numpy(np.load(rf)[None, ...]).to(device)  # [1,H,W]
             sample_pt = val_dir / f"sample_{sample_idx}.pt"
-            data = torch.load(sample_pt, map_location=device, weights_only=False)
+            data = (torch.load(sample_pt, map_location=device, weights_only=False)
+                    if sample_cache is None else sample_cache[sample_idx])
 
             gt = data['gt'][None, None, ...].to(device)              # [1,1,H,W] complex
             s_maps = data['s_map'][None, ...].to(device)
-            fs_ksp = fftmod(data['ksp'])[None, ...].to(device)
+            fs_ksp = fftmod(data['ksp'].clone() if sample_cache is not None else data['ksp'])[None, ...].to(device)
             key_mask = f"mask_{mask_select}" if mask_select is not None else "mask_7"
             mask = data[key_mask][None, ...].to(device)
 

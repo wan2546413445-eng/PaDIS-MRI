@@ -1,4 +1,4 @@
-"""Fixed PaDIS settings and the small set of LGFC experiment parameters."""
+"""Default PaDIS settings and the small set of LGFC experiment parameters."""
 
 from dataclasses import dataclass
 

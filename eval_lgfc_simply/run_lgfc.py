@@ -36,6 +36,13 @@ def parse_args():
     parser.add_argument("--save_dir", required=True)
     parser.add_argument("--sample_index", type=int, required=True)
     parser.add_argument("--mask_select", type=int, required=True)
+    parser.add_argument("--steps", type=int, default=STEPS)
+    parser.add_argument("--inner_loops", type=int, default=INNER_LOOPS)
+    parser.add_argument("--zeta", type=float, default=ZETA)
+    parser.add_argument("--sigma_min", type=float, default=0.003)
+    parser.add_argument("--sigma_max", type=float, default=10.0)
+    parser.add_argument("--rho", type=float, default=7.0)
+    parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
         "--reference_mode",
         choices=["last", "ema"],
@@ -84,10 +91,13 @@ def main():
             "image_size": IMAGE_SIZE,
             "pad": PAD,
             "patch_size": PATCH_SIZE,
-            "steps": STEPS,
-            "inner_loops": INNER_LOOPS,
-            "zeta": ZETA,
-            "seed": SEED,
+            "steps": args.steps,
+            "inner_loops": args.inner_loops,
+            "zeta": args.zeta,
+            "seed": args.seed,
+            "sigma_min": args.sigma_min,
+            "sigma_max": args.sigma_max,
+            "rho": args.rho,
         },
         "lgfc": asdict(lgfc_config),
     }
@@ -111,16 +121,19 @@ def main():
         pad=PAD,
         psize=PATCH_SIZE,
         val_count=1,
-        seed=SEED,
+        seed=args.seed,
         sample_indices=[args.sample_index],
         lgfc_config=lgfc_config,
+        sigma_min=args.sigma_min,
+        sigma_max=args.sigma_max,
+        rho=args.rho,
         save_diagnostics=args.save_diagnostics,
     )
     evaluate_dir = os.path.join(args.save_dir, "evaluate")
     evaluator.evaluate(
-        zeta=ZETA,
-        num_steps=STEPS,
-        inner_loops=INNER_LOOPS,
+        zeta=args.zeta,
+        num_steps=args.steps,
+        inner_loops=args.inner_loops,
         pad=PAD,
         psize=PATCH_SIZE,
         algo="padis",

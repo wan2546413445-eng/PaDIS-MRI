@@ -37,7 +37,7 @@ The update is scaled down only when `||delta_x|| / (||x|| + eps)` exceeds `max_r
 
 ## Defaults
 
-PaDIS is fixed at image size 384, pad/patch size 64, 78 outer steps, 10 inner loops, `zeta=3.0`, seed 123, `sigma=[0.003, 10.0]`, and `rho=7.0`.
+PaDIS defaults to image size 384, pad/patch size 64, 78 outer steps, 10 inner loops, `zeta=3.0`, seed 123, `sigma=[0.003, 10.0]`, and `rho=7.0`. The command line can override the step count, inner-loop count, zeta, seed, and sigma schedule.
 
 LGFC defaults to EMA reference, `ema_beta=0.8`, `start_outer=60`, `correction_every=1`, `unsampled_weight=0.6`, and `max_relative_update=0.08`. This triggers 19 corrections at outer steps 60 through 78.
 
@@ -52,6 +52,9 @@ CUDA_VISIBLE_DEVICES=0 python eval_lgfc_simply/run_lgfc.py \
   --save_dir /path/to/output/sample26 \
   --sample_index 26 \
   --mask_select 4 \
+  --steps 40 --inner_loops 6 \
+  --sigma_max 1 --sigma_min 0.003 --rho 7 \
+  --start_outer 31 \
   --save_diagnostics
 ```
 

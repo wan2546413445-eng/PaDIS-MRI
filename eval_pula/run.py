@@ -71,6 +71,10 @@ def parse_args():
     parser.add_argument("--score_mode", choices=("patch", "full"), default="patch")
     parser.add_argument("--grid_mode", choices=("fixed", "cycle_k", "random_step"), default="fixed")
     parser.add_argument("--pula_convention", choices=("padis_real", "paper_complex"), default="padis_real")
+    parser.add_argument("--pula_variant", choices=("baseline", "noise08", "balanced_k0", "balanced_full"), default="baseline")
+    parser.add_argument("--pa_block_size", type=int, default=8)
+    parser.add_argument("--pa_epsilon", type=float, default=1e-12)
+    parser.add_argument("--dry_run", action="store_true", help="Validate and print the plan without torch/model/data/GPU execution")
     parser.add_argument("--save_pula_handoff", action="store_true",
                         help="Save the FOV state immediately after pULA and before DPS")
     parser.add_argument("--grid_seed", type=int, default=123)
@@ -110,7 +114,25 @@ def parse_args():
     parser.add_argument("--diagnose_patch_score", action="store_true")
     parser.add_argument("--diagnose_levels", type=sample_list, help="Zero-based noise level indices")
     parser.add_argument("--terminal_denoise", action="store_true", help="Also save a separate denoised image")
+    parser.add_argument("--num_trajectories", type=int, default=None,
+                        help="Opt into single-process trajectory batching; omitted keeps the legacy runner")
+    parser.add_argument("--trajectory_batch_size", type=int, default=1)
+    parser.add_argument("--trajectory_seed_start", type=int, default=None)
+    parser.add_argument("--aggregate_counts", type=sample_list, default="1,2,3,5,8,10")
+    parser.add_argument("--save_each_trajectory", type=lambda x: bool_value(x), default=True)
+    parser.add_argument("--measure_cuda_memory", type=lambda x: bool_value(x), default=True)
     args = parser.parse_args()
+    if args.pa_block_size < 1 or not (math.isfinite(args.pa_epsilon) and args.pa_epsilon > 0):
+        parser.error("PA block size and epsilon must be positive and finite.")
+    if args.pula_variant != "baseline" and (args.grid_mode != "random_step" or args.score_mode != "patch"):
+        parser.error("New pULA variants require patch score and grid_mode=random_step for paired comparisons.")
+    if args.num_trajectories is not None:
+        if min(args.num_trajectories, args.trajectory_batch_size) < 1:
+            parser.error("Trajectory count and batch size must be positive.")
+        if args.score_mode != "patch" or args.dps_tail_steps or args.terminal_denoise or args.diagnose_patch_score or args.save_pula_handoff:
+            parser.error("Trajectory batching supports pure block pULA raw states only.")
+        if any(count < 1 for count in args.aggregate_counts):
+            parser.error("aggregate_counts must be positive.")
     if min(args.num_noise_levels, args.langevin_steps, args.cg_iters, args.image_size,
            args.dps_base_steps, args.dps_inner_loops) < 1:
         parser.error("Positive level, step, CG and image sizes are required.")
@@ -149,17 +171,61 @@ def parse_args():
     return args
 
 
-def load_measurement(val_dir, index, mask_select, device):
+def bool_value(value):
+    if value.lower() not in ("true", "false"):
+        raise argparse.ArgumentTypeError("Expected true or false.")
+    return value.lower() == "true"
+
+
+def sigma_schedule(args):
+    sigmas = [args.sigma_max * (args.sigma_min / args.sigma_max) ** (i / args.num_noise_levels)
+              for i in range(args.num_noise_levels + 1)]
+    sigmas[-1] = args.sigma_min
+    return sigmas
+
+
+def sampling_schedule(args):
+    """Original schedule and handoff calculation, shared with CPU dry-run."""
+    sigmas = sigma_schedule(args)
+    if args.dps_tail_steps:
+        if args.dps_tail_sigma_max is None:
+            dps_sigmas = karras_schedule(args.dps_base_steps, args.dps_sigma_min,
+                                         args.dps_sigma_max, args.dps_rho)[-args.dps_tail_steps:]
+        else:
+            dps_sigmas = karras_schedule(args.dps_tail_steps, args.dps_sigma_min,
+                                         args.dps_tail_sigma_max, args.dps_rho)
+        pula_levels = sum(sigma >= dps_sigmas[0] for sigma in sigmas[1:])
+        if pula_levels < 1:
+            raise ValueError("DPS tail begins above the first pULA update level.")
+    else:
+        dps_sigmas, pula_levels = [], args.num_noise_levels
+    return sigmas, dps_sigmas, pula_levels
+
+
+def dry_run_plan(args):
+    sigmas, dps_sigmas, levels = sampling_schedule(args)
+    updates = levels * args.langevin_steps
+    dps = len(dps_sigmas) * args.dps_inner_loops
+    return {**vars(args), "partition_mode": args.grid_mode, "pula_levels": levels,
+            "sigma_init": sigmas[0], "pula_handoff_sigma": sigmas[levels],
+            "dps_first_sigma": dps_sigmas[0] if dps_sigmas else None,
+            "pula_updates": updates, "dps_updates": dps, "logical_updates": updates + dps,
+            "logical_nfe_per_trajectory": updates + dps, "cg_solves_per_trajectory": 1 + updates,
+            "checkpoint_and_data_checked": False, "gpu_executed": False}
+
+
+def load_measurement(val_dir, index, mask_select, device, data=None):
     import torch
     from inverse_operators import MRI_utils, fftmod
 
     # Same .pt fields and orientation as DPSHyperEvaluator._load_sample.
-    data = torch.load(Path(val_dir) / f"sample_{index}.pt", map_location="cpu", weights_only=False)
+    if data is None:
+        data = torch.load(Path(val_dir) / f"sample_{index}.pt", map_location="cpu", weights_only=False)
     # 线圈灵敏度图。沿用 PaDIS 的 FFT 调制约定，
     # [None] 加一个 batch 维，得到 [1, 线圈数, H, W]。
-    maps = fftmod(data["s_map"])[None].to(device=device, dtype=torch.complex64)
+    maps = fftmod(data["s_map"].clone())[None].to(device=device, dtype=torch.complex64)
     # 多线圈 k-space。
-    kspace = fftmod(data["ksp"])[None].to(device=device, dtype=torch.complex64)
+    kspace = fftmod(data["ksp"].clone())[None].to(device=device, dtype=torch.complex64)
     # mask_select=4，所以取 mask_4。形状是 [1, 1, H, W]。
     mask = data[f"mask_{mask_select}"][None].to(device)
     if mask.shape != (1, 1, *kspace.shape[-2:]) or not ((mask == 0) | (mask == 1)).all().item():
@@ -201,7 +267,7 @@ def sidecar_path(val, index, noise_dir):
     )
 
 
-def load_noise(args, index):
+def load_noise(args, index, sample=None):
     import numpy as np
     import torch
 
@@ -226,7 +292,8 @@ def load_noise(args, index):
                 "Provide --noise_complex_var, --noise_covariance or --noise_dir."
             )
         sample_path = Path(args.val_dir) / f"sample_{index}.pt"
-        sample = torch.load(sample_path, map_location="cpu", weights_only=False)
+        if sample is None:
+            sample = torch.load(sample_path, map_location="cpu", weights_only=False)
         norm_const = float(sample["norm_consts_99"])
         if not math.isfinite(norm_const) or norm_const <= 0:
             raise ValueError(f"Sample {index}: invalid norm_consts_99={norm_const} in {sample_path}.")
@@ -299,12 +366,19 @@ def save_image(path, tensor):
 
 def main():
     args = parse_args()
+    if args.dry_run:
+        print(json.dumps(dry_run_plan(args), indent=2, ensure_ascii=False))
+        return
     if args.score_mode == "patch":
         # Keep the original patch import order, before any torch/project import.
         sys.path[:0] = [str(ROOT), str(ROOT / "eval"), str(ROOT / "train/padis-mri")]
     else:
         prepare_fullimage_environment()
     import torch
+
+    if args.num_trajectories is not None:
+        from eval_pula.trajectories import run_trajectories
+        return run_trajectories(args)
 
     import dnnlib
     from eval_pula.recon_pula import PULASystem, reconstruct, whiten_measurement
@@ -321,38 +395,9 @@ def main():
         # K iteration slots for the unchanged sampler, without any patch grid.
         shifts, diagnostic_shifts = [None] * args.langevin_steps, []
     # BART uses sigma_max at initialization and N lower, log-spaced corrector levels.
-    sigmas = [args.sigma_max * (args.sigma_min / args.sigma_max) ** (i / args.num_noise_levels)
-              for i in range(args.num_noise_levels + 1)]
-    sigmas[-1] = args.sigma_min
-    if args.dps_tail_steps:
-        if args.dps_tail_sigma_max is None:
-            # 旧行为：从原始78层调度中截取最后N层。
-            dps_base = karras_schedule(
-                args.dps_base_steps,
-                args.dps_sigma_min,
-                args.dps_sigma_max,
-                args.dps_rho,
-            )
-            dps_sigmas = dps_base[-args.dps_tail_steps:]
-        else:
-            # 新行为：独立生成固定层数的DPS尾段。
-            dps_sigmas = karras_schedule(
-                args.dps_tail_steps,
-                args.dps_sigma_min,
-                args.dps_tail_sigma_max,
-                args.dps_rho,
-            )
-
-        pula_levels = sum(
-            sigma >= dps_sigmas[0] for sigma in sigmas[1:]
-        )
-        if pula_levels < 1:
-            raise ValueError("DPS tail begins above the first pULA update level.")
-        dps_shifts = random_shifts(args.dps_tail_steps * args.dps_inner_loops,
-                                   args.pad, args.grid_seed)
-    else:
-        dps_sigmas, dps_shifts = [], []
-        pula_levels = args.num_noise_levels
+    sigmas, dps_sigmas, pula_levels = sampling_schedule(args)
+    dps_shifts = (random_shifts(len(dps_sigmas) * args.dps_inner_loops, args.pad, args.grid_seed)
+                  if dps_sigmas else [])
     # Handoff saving requests an additional artifact for the same trajectory.
     pula_shifts_by_level = None
     if args.score_mode == "patch" and args.grid_mode == "random_step":
@@ -363,7 +408,13 @@ def main():
         ]
         shifts = pula_shifts_by_level[0]
     request = {key: value for key, value in vars(args).items()
-               if key not in ("sample_indices", "out_root", "save_pula_handoff")}
+               if key not in ("sample_indices", "out_root", "save_pula_handoff", "dry_run")}
+    for key in ("num_trajectories", "trajectory_batch_size", "trajectory_seed_start",
+                "aggregate_counts", "save_each_trajectory", "measure_cuda_memory"):
+        request.pop(key)
+    if args.pula_variant != "balanced_full":
+        request.pop("pa_block_size")
+        request.pop("pa_epsilon")
     if args.score_mode == "patch":
         request.pop("score_mode")  # Preserve existing config/resume comparisons.
     request.update(
@@ -372,7 +423,7 @@ def main():
         gradient="paired_real_euclidean" if args.pula_convention == "padis_real" else "complex_wirtinger",
         sigma_units="per_real_channel_std",
         initialization="perturb_and_solve_gaussian_approximation", cg_initial="bart_image_term",
-        rng_policy="fixed_per_sample_private_generator", sigma_init=sigmas[0],
+        rng_policy="fixed_per_sample_private_generator", partition_mode=args.grid_mode, sigma_init=sigmas[0],
         sigma_levels=sigmas[1:pula_levels + 1], pula_levels=pula_levels,
         pula_handoff_sigma=sigmas[pula_levels], dps_tail_sigmas=dps_sigmas,
         shifts=[None if shift is None else list(shift) for shift in shifts], diagnostic_shifts=[list(shift) for shift in diagnostic_shifts],
@@ -405,6 +456,8 @@ def main():
         config = read_json(config_path)
         if isinstance(config, dict):
             config.setdefault("pula_convention", "padis_real")
+            config.setdefault("pula_variant", "baseline")
+            config.setdefault("partition_mode", config.get("grid_mode", args.grid_mode))
             if config["pula_convention"] != args.pula_convention:
                 raise ValueError(f"Existing pula_convention={config['pula_convention']} for {sample_dir} "
                                  f"differs from {args.pula_convention}. Use a different OUT_ROOT.")
@@ -456,7 +509,7 @@ def main():
                 save_image(handoff_path, state)
                 report(f"Saved pULA handoff: {handoff_path}")
 
-            report(f"Sample {index} | pula_convention={args.pula_convention}")
+            report(f"Sample {index} | pula_convention={args.pula_convention} pula_variant={args.pula_variant} partition_mode={args.grid_mode}")
             if not reconstructed:
                 metric_path.unlink(missing_ok=True)
                 timing_path.unlink(missing_ok=True)
@@ -502,6 +555,7 @@ def main():
                     dps_sigmas=dps_sigmas, dps_shifts=dps_shifts,
                     dps_inner_loops=args.dps_inner_loops, dps_zeta=args.dps_zeta,
                     save_handoff=save_handoff if args.save_pula_handoff else None,
+                    pula_variant=args.pula_variant, pa_block_size=args.pa_block_size, pa_epsilon=args.pa_epsilon,
                 )
                 if args.score_mode == "full":
                     iterations = [timing["initialization_cg"]["iterations"]] + [
@@ -514,6 +568,11 @@ def main():
                     report(f"FullImage first forward: {oracle.first_forward}")
                     report(f"network_forwards={timing['network_forwards']} cg_solves={timing['cg_solves']} "
                            f"cg_iteration_range={timing['cg_iteration_range']}")
+                timing["partition_mode"] = args.grid_mode
+                if timing.get("sigma_data") is not None:
+                    stored_config = read_json(config_path)
+                    stored_config["sigma_data"] = float(timing["sigma_data"])
+                    write_json(config_path, stored_config)
                 save_image(recon_path, state)
                 if terminal is not None:
                     save_image(terminal_path, terminal)
