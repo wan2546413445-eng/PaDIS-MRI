@@ -112,6 +112,9 @@ def parse_args():
     noise.add_argument("--noise_complex_var", type=float, help="Calibrated E|n|^2 for already whitened coils")
     noise.add_argument("--noise_covariance", help="Calibrated complex coil covariance in a [C,C] NPY file")
     parser.add_argument("--diagnose_patch_score", action="store_true")
+    parser.add_argument("--diagnose_dps_jacobian", action="store_true", help="Read-only DPS Jacobian mechanism diagnostics")
+    parser.add_argument("--jacobian_levels", type=sample_list, help="Zero-based DPS tail outer levels")
+    parser.add_argument("--jacobian_inner_steps", type=sample_list, help="Zero-based DPS tail inner steps")
     parser.add_argument("--diagnose_levels", type=sample_list, help="Zero-based noise level indices")
     parser.add_argument("--terminal_denoise", action="store_true", help="Also save a separate denoised image")
     parser.add_argument("--num_trajectories", type=int, default=None,
@@ -129,7 +132,7 @@ def parse_args():
     if args.num_trajectories is not None:
         if min(args.num_trajectories, args.trajectory_batch_size) < 1:
             parser.error("Trajectory count and batch size must be positive.")
-        if args.score_mode != "patch" or args.dps_tail_steps or args.terminal_denoise or args.diagnose_patch_score or args.save_pula_handoff:
+        if args.score_mode != "patch" or args.dps_tail_steps or args.terminal_denoise or args.diagnose_patch_score or args.save_pula_handoff or args.diagnose_dps_jacobian:
             parser.error("Trajectory batching supports pure block pULA raw states only.")
         if any(count < 1 for count in args.aggregate_counts):
             parser.error("aggregate_counts must be positive.")
@@ -141,7 +144,7 @@ def parse_args():
     if args.score_mode == "patch" and (args.pad != args.psize or args.image_size % args.psize
                                       or args.langevin_steps > args.pad ** 2):
         parser.error("PaDIS shifted grids need pad=psize, image_size divisible by psize and K <= pad^2.")
-    if args.score_mode == "full" and (args.diagnose_patch_score or args.diagnose_levels or args.dps_tail_steps):
+    if args.score_mode == "full" and (args.diagnose_patch_score or args.diagnose_levels or args.dps_tail_steps or args.diagnose_dps_jacobian):
         parser.error("Full-image pULA does not use patch grid diagnostics or the patch DPS tail.")
     if not (0 < args.sigma_min <= args.sigma_max < math.inf and 0 < args.gamma < math.inf
             and 0 <= args.cg_rtol < 1):
@@ -165,6 +168,15 @@ def parse_args():
         parser.error("Patch diagnostics require room for at least two shifts.")
     if args.diagnose_levels and (not args.diagnose_patch_score or max(args.diagnose_levels) >= args.num_noise_levels):
         parser.error("Diagnostic levels must be within the schedule and require --diagnose_patch_score.")
+    if args.diagnose_dps_jacobian:
+        if not args.dps_tail_steps or args.score_mode != "patch":
+            parser.error("Jacobian diagnostics require a patch DPS tail.")
+        args.jacobian_levels = args.jacobian_levels if args.jacobian_levels is not None else [0, 11, 23]
+        args.jacobian_inner_steps = args.jacobian_inner_steps if args.jacobian_inner_steps is not None else [0]
+        if max(args.jacobian_levels) >= args.dps_tail_steps or max(args.jacobian_inner_steps) >= args.dps_inner_loops:
+            parser.error("Jacobian diagnostic index exceeds the actual DPS tail outer/inner range.")
+    elif args.jacobian_levels is not None or args.jacobian_inner_steps is not None:
+        parser.error("Jacobian index flags require --diagnose_dps_jacobian.")
     for name in ("model_path", "val_dir", "out_root", "noise_dir", "noise_covariance"):
         if getattr(args, name) is not None:
             setattr(args, name, str(Path(getattr(args, name)).expanduser().resolve()))
@@ -409,6 +421,9 @@ def main():
         shifts = pula_shifts_by_level[0]
     request = {key: value for key, value in vars(args).items()
                if key not in ("sample_indices", "out_root", "save_pula_handoff", "dry_run")}
+    if not args.diagnose_dps_jacobian:
+        for key in ("diagnose_dps_jacobian", "jacobian_levels", "jacobian_inner_steps"):
+            request.pop(key)
     for key in ("num_trajectories", "trajectory_batch_size", "trajectory_seed_start",
                 "aggregate_counts", "save_each_trajectory", "measure_cuda_memory"):
         request.pop(key)
@@ -473,10 +488,12 @@ def main():
         metric_path = out / "comp_plots" / "results.json"
         timing_path = out / "timing.json"
         diagnostic_path = out / "patch_score_diagnostics.json"
+        jacobian_path = out / "jacobian_diagnostics.json"
         reconstructed = (valid_image(recon_path, args.image_size) and isinstance(read_json(timing_path), dict)
                          and (not args.save_pula_handoff or valid_image(handoff_path, args.image_size))
                          and (not args.terminal_denoise or valid_image(terminal_path, args.image_size))
-                         and (not args.diagnose_patch_score or isinstance(read_json(diagnostic_path), list)))
+                         and (not args.diagnose_patch_score or isinstance(read_json(diagnostic_path), list))
+                         and (not args.diagnose_dps_jacobian or isinstance(read_json(jacobian_path), dict)))
         if reconstructed and valid_metrics(metric_path, index):
             print(f"Skip sample {index}: reconstruction and metrics verified "
                   f"(pula_convention={args.pula_convention}).", flush=True)
@@ -547,6 +564,7 @@ def main():
                     report(f"Hybrid handoff: pULA {pula_levels} levels through sigma={sigmas[pula_levels]:.6g}; "
                            f"DPS last {len(dps_sigmas)} levels from sigma={dps_sigmas[0]:.6g} "
                            f"to {dps_sigmas[-1]:.6g}, inner={args.dps_inner_loops}, zeta={args.dps_zeta}")
+                jacobian_records = [] if args.diagnose_dps_jacobian else None
                 state, terminal, timing, diagnostics = reconstruct(
                     system, oracle, sigmas, shifts, args.gamma, diagnose_levels=args.diagnose_levels or (),
                     diagnostic_shifts=diagnostic_shifts, terminal=args.terminal_denoise, report=report,
@@ -554,6 +572,9 @@ def main():
                     dps_operator=raw_operator, dps_measurement=raw_measurement,
                     dps_sigmas=dps_sigmas, dps_shifts=dps_shifts,
                     dps_inner_loops=args.dps_inner_loops, dps_zeta=args.dps_zeta,
+                    jacobian_levels=args.jacobian_levels if args.diagnose_dps_jacobian else (),
+                    jacobian_inner_steps=args.jacobian_inner_steps if args.diagnose_dps_jacobian else (),
+                    jacobian_records=jacobian_records,
                     save_handoff=save_handoff if args.save_pula_handoff else None,
                     pula_variant=args.pula_variant, pa_block_size=args.pa_block_size, pa_epsilon=args.pa_epsilon,
                 )
@@ -578,6 +599,28 @@ def main():
                     save_image(terminal_path, terminal)
                 if args.diagnose_patch_score:
                     write_json(diagnostic_path, diagnostics)
+                if args.diagnose_dps_jacobian:
+                    from eval_pula.jacobian_diagnostics import write_outputs
+                    from tools.analyze_jacobian_diagnostics import summarize
+                    metadata = {
+                        "model_path": args.model_path, "val_dir": args.val_dir,
+                        "sample_index": index, "mask_select": args.mask_select,
+                        "pula_convention": args.pula_convention, "pula_variant": args.pula_variant,
+                        "grid_mode": args.grid_mode, "seed": args.seed, "grid_seed": args.grid_seed,
+                        "pad": args.pad, "image_size": args.image_size, "psize": args.psize,
+                        "pula_levels": pula_levels, "pula_updates": timing["langevin_updates"],
+                        "dps_tail_sigmas": dps_sigmas,
+                        "dps_inner_loops": args.dps_inner_loops,
+                        "dps_shifts": [list(s) for s in dps_shifts],
+                        "dps_updates": timing["dps_updates"],
+                        "network_forwards": timing["network_forwards"],
+                        "network_backprops": timing["network_backprops"],
+                        "extra_network_forwards": 0, "extra_network_backwards": 0,
+                        "extra_raw_mri_adjoint_calls": len(jacobian_records),
+                        "mri_operator": "raw_unwhitened_dps_operator",
+                    }
+                    write_outputs(out, jacobian_records, metadata)
+                    summarize(jacobian_path, out / "jacobian_cosines.png")
                 write_json(timing_path, timing)
                 report(f"Reconstruction took {timing['reconstruction_seconds']:.3f} s")
             else:

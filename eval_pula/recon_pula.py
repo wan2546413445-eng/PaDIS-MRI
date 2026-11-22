@@ -212,7 +212,8 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                 dps_operator=None,
                 dps_measurement=None, dps_sigmas=(), dps_shifts=(), dps_inner_loops=10,
                 dps_zeta=3.0, save_handoff=None, pula_variant="baseline",
-                pa_block_size=8, pa_epsilon=1e-12):
+                pa_block_size=8, pa_epsilon=1e-12,
+                jacobian_levels=(), jacobian_inner_steps=(), jacobian_records=None):
     # sigmas[0] 是高斯初始化 sigma_max；sigmas[1:] 才是各个 Langevin 更新层。
     # 因而日志显示的实际 pULA 层数可能与建立 sigma 网格时的 num_noise_levels 不同。
     """sigmas[0] initializes the chain, sigmas[1:] drive the Langevin levels."""
@@ -350,6 +351,12 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         # 当前 state 就是 pULA 的终态；没有再抽取新的初始图像。
         # DPS 阶段改用传入的 raw MRI 算子/测量（与 pULA 白化算子不同）。
         if dps_sigmas:
+            if jacobian_records is not None:
+                from eval_pula.jacobian_diagnostics import observe as observe_jacobian
+                if not jacobian_levels or not jacobian_inner_steps:
+                    raise ValueError("Jacobian diagnostics need explicit outer and inner indices.")
+                if max(jacobian_levels) >= len(dps_sigmas) or max(jacobian_inner_steps) >= dps_inner_loops:
+                    raise ValueError("Jacobian diagnostic indices outside the DPS tail.")
             if dps_operator is None or dps_measurement is None:
                 raise ValueError("DPS tail requires the original unwhitened MRI operator and measurement.")
             # 每个 DPS 噪声层有 dps_inner_loops 个 patch 网格偏移。
@@ -400,6 +407,15 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                         with section("dps_backward_seconds"):
                             # 反传至 current：包含 denoiser 的 Jacobian，即 DPS 的重要开销。
                             likelihood_grad = torch.autograd.grad(sse.sum(), current)[0]
+                        if (jacobian_records is not None and outer in jacobian_levels
+                                and inner in jacobian_inner_steps):
+                            jacobian_records.append(observe_jacobian(
+                                current, likelihood_grad, residual, dps_operator,
+                                sigma=sigma, outer=outer, inner=inner, shift=shift,
+                                pad=oracle.pad, image_size=oracle.image_size, psize=oracle.psize,
+                                network_forwards=network_calls,
+                                network_backwards=outer * dps_inner_loops + inner + 1,
+                            ))
                         # score 用于 PaDIS 原始扩散更新：(D_patch(x_noisy)-x_noisy)/sigma^2。
                         score = (denoised - noisy) / sigma ** 2
                         # 归一化的 DPS 数据一致性梯度下降；zeta 为经验系数。
@@ -475,6 +491,8 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         dps_tail_seconds=dps_tail_seconds,
         initialization_cg=init_info, update_cg=cg_records, dps_tail=dps_records,
     )
+    if jacobian_records is not None:
+        timing["jacobian_extra_ah_calls"] = len(jacobian_records)
     timing["pula_seconds"] = timing["reconstruction_seconds"] - dps_tail_seconds
     if device.type == "cuda":
         timing.update(
