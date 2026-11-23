@@ -1,0 +1,636 @@
+{
+  "device": "cpu",
+  "device_name": "CPU",
+  "torch_version": "2.15.0+cpu",
+  "dtype": "FP32",
+  "activation_checkpointing": false,
+  "real_training_batches": false,
+  "batch_multipliers": {
+    "16": 64,
+    "32": 32,
+    "64": 16
+  },
+  "architecture_and_initialization": {
+    "parameters": 14381350,
+    "conditioned_blocks": 16,
+    "stage_widths": {
+      "encoder1": 80,
+      "encoder2": 160,
+      "latent": 320,
+      "decoder2": 160,
+      "decoder1": 96,
+      "refinement": 96
+    },
+    "reduce_channels_level1_weight_shape": [
+      96,
+      160,
+      1,
+      1
+    ],
+    "output_weight_std": 0.0010351053206250072,
+    "output_shapes": {
+      "16": [
+        1,
+        2,
+        16,
+        16
+      ],
+      "32": [
+        1,
+        2,
+        32,
+        32
+      ],
+      "64": [
+        1,
+        2,
+        64,
+        64
+      ]
+    },
+    "near_zero_gate_checks": [
+      {
+        "dim": 80,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 80,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 160,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 160,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 160,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 320,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000894069672,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000894069672
+      },
+      {
+        "dim": 320,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000894069672,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000894069672
+      },
+      {
+        "dim": 320,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000894069672,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000894069672
+      },
+      {
+        "dim": 320,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000894069672,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000894069672
+      },
+      {
+        "dim": 160,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 160,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 160,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.10000000149011612,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.10000000149011612
+      },
+      {
+        "dim": 96,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.09999999403953552,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.09999999403953552
+      },
+      {
+        "dim": 96,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.09999999403953552,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.09999999403953552
+      },
+      {
+        "dim": 96,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.09999999403953552,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.09999999403953552
+      },
+      {
+        "dim": 96,
+        "weight_is_zero": true,
+        "attention_shift_scale_bias_is_zero": true,
+        "attention_gate_bias_mean": 0.09999999403953552,
+        "ffn_shift_scale_bias_is_zero": true,
+        "ffn_gate_bias_mean": 0.09999999403953552
+      }
+    ]
+  },
+  "gradient_and_sigma": {
+    "optimization_steps": [
+      {
+        "step": 1,
+        "loss": 1.4412771463394165,
+        "groups": {
+          "noise_embedding": {
+            "parameter_tensors": 4,
+            "nonzero_gradient_tensors": 0,
+            "nonzero_tensor_ratio": 0.0,
+            "parameter_elements": 184960,
+            "nonzero_gradient_elements": 0,
+            "nonzero_element_ratio": 0.0,
+            "gradient_l2_norm": 0.0,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level1": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 446884,
+            "nonzero_gradient_elements": 446884,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 4.5371290730667225e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level2": {
+            "parameter_tensors": 39,
+            "nonzero_gradient_tensors": 39,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1724652,
+            "nonzero_gradient_elements": 1724652,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 1.63821359999886e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level3": {
+            "parameter_tensors": 52,
+            "nonzero_gradient_tensors": 52,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 6647072,
+            "nonzero_gradient_elements": 6647072,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 1.145208448178067e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "decoder_level2": {
+            "parameter_tensors": 39,
+            "nonzero_gradient_tensors": 39,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1724652,
+            "nonzero_gradient_elements": 1724652,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 3.904997820561723e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "decoder_level1": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 566980,
+            "nonzero_gradient_elements": 566980,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00011397506255528156,
+            "all_gradients_present_and_finite": true
+          },
+          "refinement": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 566980,
+            "nonzero_gradient_elements": 566980,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00011659816173863755,
+            "all_gradients_present_and_finite": true
+          },
+          "mdta_all": {
+            "parameter_tensors": 64,
+            "nonzero_gradient_tensors": 64,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 2526692,
+            "nonzero_gradient_elements": 2526692,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 8.091794299604769e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "gdfn_all": {
+            "parameter_tensors": 48,
+            "nonzero_gradient_tensors": 48,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 3777408,
+            "nonzero_gradient_elements": 3777408,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00014362943256563928,
+            "all_gradients_present_and_finite": true
+          },
+          "output": {
+            "parameter_tensors": 2,
+            "nonzero_gradient_tensors": 2,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1730,
+            "nonzero_gradient_elements": 1730,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.12644451874054222,
+            "all_gradients_present_and_finite": true
+          },
+          "all_trainable": {
+            "parameter_tensors": 221,
+            "nonzero_gradient_tensors": 217,
+            "nonzero_tensor_ratio": 0.9819004524886877,
+            "parameter_elements": 14381350,
+            "nonzero_gradient_elements": 14196390,
+            "nonzero_element_ratio": 0.9871388986430342,
+            "gradient_l2_norm": 0.12648599069985503,
+            "all_gradients_present_and_finite": true
+          }
+        }
+      },
+      {
+        "step": 2,
+        "loss": 1.4407191276550293,
+        "groups": {
+          "noise_embedding": {
+            "parameter_tensors": 4,
+            "nonzero_gradient_tensors": 4,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 184960,
+            "nonzero_gradient_elements": 184960,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 3.6062614412247474e-06,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level1": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 446884,
+            "nonzero_gradient_elements": 446884,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 4.585381929923498e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level2": {
+            "parameter_tensors": 39,
+            "nonzero_gradient_tensors": 39,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1724652,
+            "nonzero_gradient_elements": 1724652,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 1.6635363194127116e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level3": {
+            "parameter_tensors": 52,
+            "nonzero_gradient_tensors": 52,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 6647072,
+            "nonzero_gradient_elements": 6647072,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 1.1767118082233872e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "decoder_level2": {
+            "parameter_tensors": 39,
+            "nonzero_gradient_tensors": 39,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1724652,
+            "nonzero_gradient_elements": 1724652,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 3.927899676808551e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "decoder_level1": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 566980,
+            "nonzero_gradient_elements": 566980,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00011388822810360197,
+            "all_gradients_present_and_finite": true
+          },
+          "refinement": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 566980,
+            "nonzero_gradient_elements": 566980,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.0001168410920714531,
+            "all_gradients_present_and_finite": true
+          },
+          "mdta_all": {
+            "parameter_tensors": 64,
+            "nonzero_gradient_tensors": 64,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 2526692,
+            "nonzero_gradient_elements": 2526692,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 8.068374931611914e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "gdfn_all": {
+            "parameter_tensors": 48,
+            "nonzero_gradient_tensors": 48,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 3777408,
+            "nonzero_gradient_elements": 3777408,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00014363079616459893,
+            "all_gradients_present_and_finite": true
+          },
+          "output": {
+            "parameter_tensors": 2,
+            "nonzero_gradient_tensors": 2,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1730,
+            "nonzero_gradient_elements": 1730,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.12648318746691503,
+            "all_gradients_present_and_finite": true
+          },
+          "all_trainable": {
+            "parameter_tensors": 221,
+            "nonzero_gradient_tensors": 221,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 14381350,
+            "nonzero_gradient_elements": 14381350,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.12652495902198752,
+            "all_gradients_present_and_finite": true
+          }
+        }
+      },
+      {
+        "step": 3,
+        "loss": 1.4401543140411377,
+        "groups": {
+          "noise_embedding": {
+            "parameter_tensors": 4,
+            "nonzero_gradient_tensors": 4,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 184960,
+            "nonzero_gradient_elements": 184960,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 7.3888880755739365e-06,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level1": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 446884,
+            "nonzero_gradient_elements": 446884,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 4.721372378344869e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level2": {
+            "parameter_tensors": 39,
+            "nonzero_gradient_tensors": 39,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1724652,
+            "nonzero_gradient_elements": 1724652,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 1.7423854335146677e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "encoder_level3": {
+            "parameter_tensors": 52,
+            "nonzero_gradient_tensors": 52,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 6647072,
+            "nonzero_gradient_elements": 6647072,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 1.2593948834738223e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "decoder_level2": {
+            "parameter_tensors": 39,
+            "nonzero_gradient_tensors": 39,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1724652,
+            "nonzero_gradient_elements": 1724652,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 4.0269544479871044e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "decoder_level1": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 566980,
+            "nonzero_gradient_elements": 566980,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00011703814899605703,
+            "all_gradients_present_and_finite": true
+          },
+          "refinement": {
+            "parameter_tensors": 26,
+            "nonzero_gradient_tensors": 26,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 566980,
+            "nonzero_gradient_elements": 566980,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00011892713083881791,
+            "all_gradients_present_and_finite": true
+          },
+          "mdta_all": {
+            "parameter_tensors": 64,
+            "nonzero_gradient_tensors": 64,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 2526692,
+            "nonzero_gradient_elements": 2526692,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 8.238752368191403e-05,
+            "all_gradients_present_and_finite": true
+          },
+          "gdfn_all": {
+            "parameter_tensors": 48,
+            "nonzero_gradient_tensors": 48,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 3777408,
+            "nonzero_gradient_elements": 3777408,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.00014705900507568247,
+            "all_gradients_present_and_finite": true
+          },
+          "output": {
+            "parameter_tensors": 2,
+            "nonzero_gradient_tensors": 2,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 1730,
+            "nonzero_gradient_elements": 1730,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.12688117654116227,
+            "all_gradients_present_and_finite": true
+          },
+          "all_trainable": {
+            "parameter_tensors": 221,
+            "nonzero_gradient_tensors": 221,
+            "nonzero_tensor_ratio": 1.0,
+            "parameter_elements": 14381350,
+            "nonzero_gradient_elements": 14381350,
+            "nonzero_element_ratio": 1.0,
+            "gradient_l2_norm": 0.1269250418020972,
+            "all_gradients_present_and_finite": true
+          }
+        }
+      }
+    ],
+    "post_update_backbone_sigma_output_mean_abs_difference": 2.3935325543789077e-07,
+    "all_gradients_finite": true
+  },
+  "patch_training_paths": {
+    "16": {
+      "patch_size": 16,
+      "source_images_shape": [
+        1,
+        2,
+        512,
+        512
+      ],
+      "network_input_shape": [
+        1,
+        4,
+        16,
+        16
+      ],
+      "loss_map_shape": [
+        1,
+        2,
+        16,
+        16
+      ],
+      "loss": 1420.131591796875,
+      "optimizer_step_completed": true,
+      "all_gradients_finite": true,
+      "memory": {
+        "allocated_mib": null,
+        "reserved_mib": null,
+        "peak_allocated_mib": null
+      }
+    },
+    "32": {
+      "patch_size": 32,
+      "source_images_shape": [
+        1,
+        2,
+        512,
+        512
+      ],
+      "network_input_shape": [
+        1,
+        4,
+        32,
+        32
+      ],
+      "loss_map_shape": [
+        1,
+        2,
+        32,
+        32
+      ],
+      "loss": 6773.39697265625,
+      "optimizer_step_completed": true,
+      "all_gradients_finite": true,
+      "memory": {
+        "allocated_mib": null,
+        "reserved_mib": null,
+        "peak_allocated_mib": null
+      }
+    },
+    "64": {
+      "patch_size": 64,
+      "source_images_shape": [
+        1,
+        2,
+        512,
+        512
+      ],
+      "network_input_shape": [
+        2,
+        4,
+        64,
+        64
+      ],
+      "loss_map_shape": [
+        1,
+        2,
+        64,
+        64
+      ],
+      "loss": 32203.9296875,
+      "optimizer_step_completed": true,
+      "all_gradients_finite": true,
+      "memory": {
+        "allocated_mib": null,
+        "reserved_mib": null,
+        "peak_allocated_mib": null
+      }
+    }
+  },
+  "snapshot": {
+    "roundtrip": true,
+    "restored_model_type": "NoiseConditionedRestormerV2",
+    "output_shape": [
+      4,
+      2,
+      64,
+      64
+    ],
+    "pickle_bytes": 57721710
+  }
+}

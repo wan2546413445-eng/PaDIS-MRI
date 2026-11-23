@@ -740,6 +740,15 @@ class Patch_EDMPrecond(torch.nn.Module):
             # existing model names and construction paths unchanged.
             from training.efficient_unet import EfficientSongUNet
             model_class = EfficientSongUNet
+        elif model_type == 'NoiseConditionedRestormer':
+            from training.noise_conditioned_restormer import NoiseConditionedRestormer
+            model_class = NoiseConditionedRestormer
+        elif model_type == 'NoiseConditionedRestormerV2':
+            from training.noise_conditioned_restormer_v2 import NoiseConditionedRestormerV2
+            model_class = NoiseConditionedRestormerV2
+        elif model_type == 'NoiseConditionedRestormerV2Sigma':
+            from training.noise_conditioned_restormer_v2_sigma import NoiseConditionedRestormerV2Sigma
+            model_class = NoiseConditionedRestormerV2Sigma
         else:
             model_class = globals()[model_type]
         self.model = model_class(img_resolution=img_resolution, in_channels=img_channels, out_channels=self.out_channels, label_dim=label_dim, **model_kwargs)

@@ -31,6 +31,70 @@ from eval_pula.score_opa import compare_grids, real_channels
 from eval_pula.pa_balance import VARIANTS, PABalanceStats, balanced_coefficients, edm_sigma_data
 
 
+# ===== EXPERIMENTAL: clean-state Jacobian data guidance for pULA =====
+def _pula_clean_dc_guidance(system, oracle, state, denoised, sigma_net, shift,
+                            method, fd_rel_eps):
+    """Return (current D_patch(state), J_D^T A^H(y-A D)) for vjp;
+    return J_D v for fd. Both use the same whitening and fixed shift.
+
+    The FD branch equals the VJP only if the real Jacobian is symmetric.
+    Extra A/AH on selected pULA steps; extra network backward for VJP or
+    extra forward for FD. No extra random draws or CG solves.
+    """
+    if method == "vjp":
+        # reconstruct is @torch.no_grad; locally recover autograd through the
+        # denoiser. PatchScore.denoise is itself @no_grad so cannot be used.
+        with torch.enable_grad():
+            differentiable_state = state.detach().requires_grad_(True)
+            padded = F.pad(differentiable_state, (oracle.pad,) * 4)
+            pred_padded = oracle.denoise_padded(padded, sigma_net, shift)
+            fov = slice(oracle.pad, oracle.pad + oracle.image_size)
+            pred_graph = pred_padded[:, :, fov, fov]
+            pred = pred_graph.detach()
+            v = system.adjoint(system.y - system.forward(pred)).detach()
+            # Real Euclidean scalar product on complex image coordinates.
+            # torch.autograd returns the real-coordinate VJP with the correct
+            # real/imag scaling, not the Wirtinger 1/2-gradient.
+            dot = (pred_graph.conj() * v).real.sum()
+            grad = torch.autograd.grad(dot, differentiable_state,
+                                       create_graph=False, retain_graph=False)[0].detach()
+        return pred, grad
+
+    if method == "edm_skip":
+        # Zero EXTRA denoiser calls/backprop: D(state) is already available.
+        # The dropped neural Jacobian term makes this an approximation, not a VJP.
+        residual = system.y - system.forward(denoised)
+        v = system.adjoint(residual)
+        sigma_data = edm_sigma_data(oracle.net)
+        c_skip = sigma_data ** 2 / (sigma_net ** 2 + sigma_data ** 2)
+        return denoised, c_skip * v
+
+    if method == "fd":
+        # Reuse denoised already computed in the normal no_grad pULA loop.
+        v = system.adjoint(system.y - system.forward(denoised))
+        direction_rms = v.abs().square().mean().sqrt()
+        # Zero direction -> zero guide; do not trigger a wasted forward.
+        if float(direction_rms) <= 1e-20:
+            return denoised, torch.zeros_like(state)
+        state_scale = max(float(state.abs().square().mean().sqrt()), float(sigma_net), 1e-3)
+        h = float(fd_rel_eps) * state_scale
+        perturbed_state = state + h * v / direction_rms
+        # Same partition and same sigma: no partition-difference contamination.
+        pred_perturbed = oracle.denoise(perturbed_state, sigma_net, shift)
+        jvp = (pred_perturbed - denoised) * (direction_rms / h)
+        return denoised, jvp
+
+    raise ValueError(f"Unknown pULA DC guidance method: {method}")
+
+
+def _guide_norm_cosine(left, right):
+    lnorm = left.abs().square().mean().sqrt()
+    rnorm = right.abs().square().mean().sqrt()
+    inner = (left.conj() * right).real.mean()
+    return float(lnorm), float(rnorm), float(inner / (lnorm * rnorm + 1e-20))
+# ===== END experimental pULA guidance =====
+
+
 # [pULA 随机项] 构造每个实数通道方差为 1 的独立高斯噪声。
 # PyTorch complex64 的 torch.randn 的实、虚部方差各为 1/2；乘 sqrt(2) 后各为 1。
 # 这与下方 whiten_measurement 设定的“每个实数通道测量噪声方差为 1”相对应。
@@ -180,11 +244,25 @@ class PULASystem:
     #   delta = gamma*M_sigma*(A_w^H(y_w-A_w x) + score)
     #           + sqrt(2*gamma)*M_sigma*(A_w^H n1 + sigma^(-1)n2)。
     # score 是 PaDIS patch EDM 给出的近似全图 score，并非训练好的全图 score net。
-    def update_rhs(self, x, prior_score, sigma_net, gamma):
+    def update_rhs(self, x, prior_score, sigma_net, gamma, clean_likelihood=None, guide_weight=1.0,
+                   guide_mix="replace", cached_likelihood=None):
         sigma_system = self.system_sigma(sigma_net)
         # 数据一致性梯度（白化后的原始状态 x）：A_w^H(y_w - A_w x)。
         # 和后面 DPS 的 A^H(y - A*denoised) / 对 denoiser 反传不同。
-        likelihood = self.adjoint(self.y - self.forward(x))
+        # "replace" reproduces the old VJP/FD/EDM-skip experiments unchanged.
+        # "add" retains the noisy-state likelihood and adds denoised-domain VJP.
+        if clean_likelihood is not None and guide_mix == "replace" and guide_weight == 1.0:
+            likelihood = clean_likelihood
+        else:
+            likelihood = (cached_likelihood if cached_likelihood is not None else
+                          self.adjoint(self.y - self.forward(x)))
+            if clean_likelihood is not None:
+                if guide_mix == "add":
+                    likelihood = likelihood + guide_weight * clean_likelihood
+                elif guide_mix == "replace":
+                    likelihood = (1.0 - guide_weight) * likelihood + guide_weight * clean_likelihood
+                else:
+                    raise ValueError(f"Unknown pULA DC mixing: {guide_mix}")
         # 每次 Langevin 更新重新生成独立随机扰动（不与初始化噪声复用）。
         noise, image_noise = self.noise_rhs(x, sigma_net)
         diffusion = sqrt(2.0 * gamma)
@@ -213,6 +291,9 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                 dps_measurement=None, dps_sigmas=(), dps_shifts=(), dps_inner_loops=10,
                 dps_zeta=3.0, save_handoff=None, pula_variant="baseline",
                 pa_block_size=8, pa_epsilon=1e-12,
+                pula_dc_guide="none", pula_dc_last_levels=8,
+                pula_dc_guide_weight=1.0, pula_dc_fd_rel_eps=0.01,
+                pula_dc_mix="replace",
                 jacobian_levels=(), jacobian_inner_steps=(), jacobian_records=None):
     # sigmas[0] 是高斯初始化 sigma_max；sigmas[1:] 才是各个 Langevin 更新层。
     # 因而日志显示的实际 pULA 层数可能与建立 sigma 网格时的 num_noise_levels 不同。
@@ -270,6 +351,10 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         state, init_info = system.solve(init_rhs, initial, sigmas[0])
     # 日志记录容器：CG 诊断、可选 patch 网格诊断、DPS 每步残差。
     cg_records, diagnostics, dps_records = [], [], []
+    dc_guide_records = []
+    dc_guide_fd_forwards = 0
+    dc_guide_fd_logical_nfe = 0
+    dc_guide_vjp_backprops = 0
     dps_tail_seconds = 0.0
     diagnostic_calls = 0
     terminal_image = None
@@ -298,7 +383,27 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
             for step, shift in enumerate(level_shifts):
                 # 当前复数状态 state -> patch EDM 去噪预测 D_patch(state,sigma)。
                 # 这里只用当前 state，不像 DPS 额外先做 x + sigma*noise。
-                denoised = oracle.denoise(state, sigma_net, shift)
+                guided_step = (pula_dc_guide != "none"
+                               and level >= max(0, len(selected_sigmas) - pula_dc_last_levels)
+                               and step == len(level_shifts) - 1)
+                clean_likelihood = None
+                if guided_step and pula_dc_guide == "vjp":
+                    with section("pula_dc_guide_seconds"):
+                        denoised, clean_likelihood = _pula_clean_dc_guidance(
+                            system, oracle, state, None, sigma_net, shift,
+                            "vjp", pula_dc_fd_rel_eps)
+                    dc_guide_vjp_backprops += 1
+                else:
+                    denoised = oracle.denoise(state, sigma_net, shift)
+                    if guided_step:
+                        before_fd = network_calls
+                        with section("pula_dc_guide_seconds"):
+                            _, clean_likelihood = _pula_clean_dc_guidance(
+                                system, oracle, state, denoised, sigma_net, shift,
+                                pula_dc_guide, pula_dc_fd_rel_eps)
+                        added = network_calls - before_fd
+                        dc_guide_fd_forwards += added
+                        dc_guide_fd_logical_nfe += int(added > 0)
                 # 可选诊断：比较同一 state 在不同 patch 网格下的去噪预测差异。
                 # 不是算法必需步骤；只在 diagnose_levels 指定的层运行。
                 if step == 0 and level in diagnose_levels:
@@ -317,7 +422,22 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
                         for j, tracker in enumerate(trackers):
                             tracker.observe(state[j:j+1], denoised[j:j+1], step_shifts[j])
                 # 计算 likelihood 梯度 + prior score + Langevin 随机项，构造 CG rhs。
-                rhs, initial = system.update_rhs(state, prior_score, sigma_net, gamma)
+                if guided_step:
+                    if pula_dc_guide == "edm_skip":
+                        new_rms = float(clean_likelihood.abs().square().mean().sqrt())
+                        old_rms, cosine = None, None
+                    else:
+                        noisy_likelihood = system.adjoint(system.y - system.forward(state))
+                        old_rms, new_rms, cosine = _guide_norm_cosine(noisy_likelihood, clean_likelihood)
+                    dc_guide_records.append(dict(
+                        level=level, step=step, sigma=float(sigma_net),
+                        noisy_likelihood_rms=old_rms, clean_likelihood_rms=new_rms,
+                        direction_cosine=cosine, method=pula_dc_guide))
+                rhs, initial = system.update_rhs(
+                    state, prior_score, sigma_net, gamma,
+                    clean_likelihood=clean_likelihood,
+                    guide_weight=pula_dc_guide_weight, guide_mix=pula_dc_mix,
+                    cached_likelihood=(noisy_likelihood if guided_step and pula_dc_guide != "edm_skip" else None))
                 with section("update_cg_seconds"):
                     # CG 近似求 delta = M_sigma*rhs（不是直接输出新的 x）。
                     delta, info = system.solve(rhs, initial, sigma_net)
@@ -475,7 +595,14 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         pula_variant=pula_variant, sigma_data=sigma_data, gamma=gamma,
         pa_balance=pa_records,
         logical_updates=len(cg_records) + len(dps_records),
-        logical_nfe=len(cg_records) + len(dps_records),
+        logical_nfe=len(cg_records) + len(dps_records) + dc_guide_fd_logical_nfe,
+        pula_dc_guide=pula_dc_guide, pula_dc_last_levels=pula_dc_last_levels,
+        pula_dc_guide_weight=pula_dc_guide_weight, pula_dc_fd_rel_eps=pula_dc_fd_rel_eps,
+        pula_dc_mix=pula_dc_mix,
+        pula_dc_guide_records=dc_guide_records,
+        pula_dc_guide_fd_extra_forwards=dc_guide_fd_forwards,
+        pula_dc_guide_fd_extra_logical_nfe=dc_guide_fd_logical_nfe,
+        pula_dc_guide_vjp_extra_backprops=dc_guide_vjp_backprops,
         pula_convention=system.convention,
         cg_seconds=timing["initialization_cg_seconds"] + timing.get("update_cg_seconds", 0.0),
         network_forwards=network_calls,
@@ -486,7 +613,7 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         cg_iterations=init_info["iterations"] + sum(row["iterations"] for row in cg_records),
         a_calls=system.forward_calls, ah_calls=system.adjoint_calls,
         # dps_records 每个条目对应一次 DC 反传；DPS24x10 = 240 次。
-        network_backprops=len(dps_records), dps_updates=len(dps_records),
+        network_backprops=len(dps_records) + dc_guide_vjp_backprops, dps_updates=len(dps_records),
         dps_a_calls=len(dps_records), pula_levels=len(selected_sigmas),
         dps_tail_seconds=dps_tail_seconds,
         initialization_cg=init_info, update_cg=cg_records, dps_tail=dps_records,

@@ -78,8 +78,13 @@ def parse_float_list(s):
               show_default=True)
 @click.option('--arch', help='Network architecture', metavar='ddpmpp|ncsnpp|adm',
               type=click.Choice(['ddpmpp', 'ncsnpp', 'adm']), default='ddpmpp', show_default=True)
-@click.option('--backbone', help='DDPM++ denoising backbone', metavar='songunet|efficient_songunet',
-              type=click.Choice(['songunet', 'efficient_songunet']), default='songunet', show_default=True)
+@click.option('--backbone', help='Denoising backbone',
+              metavar='songunet|efficient_songunet|nc_restormer|nc_restormer_v2|nc_restormer_v2_sigma',
+              type=click.Choice([
+                  'songunet', 'efficient_songunet', 'nc_restormer',
+                  'nc_restormer_v2', 'nc_restormer_v2_sigma',
+              ]),
+              default='songunet', show_default=True)
 @click.option('--precond', help='Preconditioning & loss function', metavar='vp|ve|edm',
               type=click.Choice(['vp', 've', 'edm', 'pedm']), default='pedm', show_default=True)
 # Hyperparameters.
@@ -107,6 +112,8 @@ def parse_float_list(s):
 @click.option('--ls', help='Loss scaling', metavar='FLOAT', type=click.FloatRange(min=0, min_open=True), default=1,
               show_default=True)
 @click.option('--bench', help='Enable cuDNN benchmarking', metavar='BOOL', type=bool, default=True, show_default=True)
+@click.option('--activation-checkpointing', help='Checkpoint NC-Restormer blocks during training', metavar='BOOL',
+              type=bool, default=False, show_default=True)
 @click.option('--cache', help='Cache dataset in CPU memory', metavar='BOOL', type=bool, default=True, show_default=True)
 @click.option('--workers', help='DataLoader worker processes', metavar='INT', type=click.IntRange(min=1), default=1,
               show_default=True)
@@ -235,16 +242,53 @@ def main(**kwargs):
     #     raise click.ClickException(f'--data: {err}')
 
     # Network architecture.
-    if opts.backbone == 'efficient_songunet' and opts.arch != 'ddpmpp':
-        raise click.ClickException('--backbone=efficient_songunet currently requires --arch=ddpmpp')
-    if opts.backbone == 'efficient_songunet' and opts.precond != 'pedm':
-        raise click.ClickException('--backbone=efficient_songunet currently requires --precond=pedm')
+    nc_backbones = ('nc_restormer', 'nc_restormer_v2', 'nc_restormer_v2_sigma')
+    if opts.backbone in ('efficient_songunet', *nc_backbones) and opts.arch != 'ddpmpp':
+        raise click.ClickException(f'--backbone={opts.backbone} requires --arch=ddpmpp')
+    if opts.backbone in ('efficient_songunet', *nc_backbones) and opts.precond != 'pedm':
+        raise click.ClickException(f'--backbone={opts.backbone} requires --precond=pedm')
+    if opts.backbone in nc_backbones and (opts.cbase is not None or opts.cres is not None):
+        raise click.ClickException('NC-Restormer uses its fixed dim=80 three-scale configuration; omit --cbase/--cres')
     if opts.arch == 'ddpmpp':
-        model_type = 'EfficientSongUNet' if opts.backbone == 'efficient_songunet' else 'SongUNet'
-        c.network_kwargs.update(model_type=model_type, embedding_type='positional', encoder_type='standard',
-                                decoder_type='standard')
-        c.network_kwargs.update(channel_mult_noise=1, resample_filter=[1, 1], model_channels=128,
-                                channel_mult=[2, 2, 2], hash_channels=c.hash_channels)
+        if opts.backbone in nc_backbones:
+            model_types = {
+                'nc_restormer': 'NoiseConditionedRestormer',
+                'nc_restormer_v2': 'NoiseConditionedRestormerV2',
+                'nc_restormer_v2_sigma': 'NoiseConditionedRestormerV2Sigma',
+            }
+            c.network_kwargs.update(
+                model_type=model_types[opts.backbone],
+                dim=80,
+                num_blocks=[2, 3, 4],
+                num_decoder_blocks=[3, 2],
+                num_refinement_blocks=2,
+                heads=[2, 4, 8],
+                ffn_expansion_factor=2.0,
+                bias=False,
+                layer_norm_type='WithBias',
+                condition_dim=320,
+                noise_embedding_size=256,
+                activation_checkpointing=opts.activation_checkpointing,
+            )
+            if opts.backbone in ('nc_restormer_v2', 'nc_restormer_v2_sigma'):
+                c.network_kwargs.update(
+                    decoder_level1_dim=96,
+                    decoder_level1_heads=2,
+                    gate_bias=0.1,
+                    output_init_std=1e-3,
+                )
+            if opts.backbone == 'nc_restormer_v2_sigma':
+                c.network_kwargs.update(
+                    modulation_init_std=0.01,
+                    fourier_bandwidth=1.0,
+                    fourier_seed=2024,
+                )
+        else:
+            model_type = 'EfficientSongUNet' if opts.backbone == 'efficient_songunet' else 'SongUNet'
+            c.network_kwargs.update(model_type=model_type, embedding_type='positional', encoder_type='standard',
+                                    decoder_type='standard')
+            c.network_kwargs.update(channel_mult_noise=1, resample_filter=[1, 1], model_channels=128,
+                                    channel_mult=[2, 2, 2], hash_channels=c.hash_channels)
     elif opts.arch == 'ncsnpp':
         c.network_kwargs.update(model_type='SongUNet', embedding_type='fourier', encoder_type='residual',
                                 decoder_type='standard')
@@ -359,6 +403,12 @@ def main(**kwargs):
     dtype_str = 'fp16' if c.network_kwargs.use_fp16 else 'fp32'
     dataset_name = 'aapm_3'
     desc = f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
+    if opts.backbone == 'nc_restormer':
+        desc += '-nc-restormer'
+    elif opts.backbone == 'nc_restormer_v2':
+        desc += '-nc-restormer-v2'
+    elif opts.backbone == 'nc_restormer_v2_sigma':
+        desc += '-nc-restormer-v2-sigma'
     lambda_tag = str(opts.lambda_overlap).replace('.', 'p')
 
     if opts.overlap_mode == 'same':

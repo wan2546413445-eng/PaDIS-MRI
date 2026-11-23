@@ -1,0 +1,35 @@
+{
+  "device": "cpu",
+  "device_name": "not measured (static-only)",
+  "torch_version": "2.15.0+cpu",
+  "dtype": "FP32",
+  "physical_gpu_selection": "Set CUDA_VISIBLE_DEVICES to a free physical GPU; the program uses --device cuda:0",
+  "gpu_runtime_status": "pending",
+  "isolation": "Each metric constructs and releases its model independently; stable peaks are reset after warmup",
+  "models": {
+    "nc_restormer_v2": {
+      "static": {
+        "trainable_parameters": 14381350,
+        "p64_batch1_macs": 6506307584,
+        "p64_batch1_flops": 13012615168,
+        "flop_convention": "1 MAC = 2 FLOPs; learned Conv2d/Linear and MDTA QK/AV only; normalization, activations, cosine, softmax, concatenation and EDM scalar arithmetic excluded"
+      }
+    },
+    "nc_restormer_v2_sigma": {
+      "static": {
+        "trainable_parameters": 14381350,
+        "p64_batch1_macs": 6506307584,
+        "p64_batch1_flops": 13012615168,
+        "flop_convention": "1 MAC = 2 FLOPs; learned Conv2d/Linear and MDTA QK/AV only; normalization, activations, cosine, softmax, concatenation and EDM scalar arithmetic excluded"
+      }
+    },
+    "nc_restormer_v2_sigma_checkpointed": {
+      "static": {
+        "trainable_parameters": 14381350,
+        "p64_batch1_macs": 6506307584,
+        "p64_batch1_flops": 13012615168,
+        "flop_convention": "1 MAC = 2 FLOPs; learned Conv2d/Linear and MDTA QK/AV only; normalization, activations, cosine, softmax, concatenation and EDM scalar arithmetic excluded"
+      }
+    }
+  }
+}

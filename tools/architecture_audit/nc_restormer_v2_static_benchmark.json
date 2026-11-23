@@ -1,0 +1,42 @@
+{
+  "device": "cpu",
+  "device_name": "not measured (static-only)",
+  "torch_version": "2.15.0+cpu",
+  "dtype": "FP32",
+  "physical_gpu_selection": "Run with CUDA_VISIBLE_DEVICES=2 and --device cuda:0",
+  "gpu_runtime_status": "pending",
+  "models": {
+    "songunet_c96": {
+      "static": {
+        "trainable_parameters": 30623138,
+        "p64_batch1_macs": 46562537472,
+        "p64_batch1_flops": 93125074944,
+        "flop_convention": "1 MAC = 2 FLOPs; learned Conv2d/Linear and MDTA QK/AV only; normalization, activations, softmax, concatenation and EDM scalar arithmetic excluded"
+      }
+    },
+    "nc_restormer_v1": {
+      "static": {
+        "trainable_parameters": 15532708,
+        "p64_batch1_macs": 9467453440,
+        "p64_batch1_flops": 18934906880,
+        "flop_convention": "1 MAC = 2 FLOPs; learned Conv2d/Linear and MDTA QK/AV only; normalization, activations, softmax, concatenation and EDM scalar arithmetic excluded"
+      }
+    },
+    "nc_restormer_v2": {
+      "static": {
+        "trainable_parameters": 14381350,
+        "p64_batch1_macs": 6506307584,
+        "p64_batch1_flops": 13012615168,
+        "flop_convention": "1 MAC = 2 FLOPs; learned Conv2d/Linear and MDTA QK/AV only; normalization, activations, softmax, concatenation and EDM scalar arithmetic excluded"
+      }
+    },
+    "nc_restormer_v2_checkpointed": {
+      "static": {
+        "trainable_parameters": 14381350,
+        "p64_batch1_macs": 6506307584,
+        "p64_batch1_flops": 13012615168,
+        "flop_convention": "1 MAC = 2 FLOPs; learned Conv2d/Linear and MDTA QK/AV only; normalization, activations, softmax, concatenation and EDM scalar arithmetic excluded"
+      }
+    }
+  }
+}

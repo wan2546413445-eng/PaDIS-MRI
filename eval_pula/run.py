@@ -74,6 +74,11 @@ def parse_args():
     parser.add_argument("--pula_variant", choices=("baseline", "noise08", "balanced_k0", "balanced_full"), default="baseline")
     parser.add_argument("--pa_block_size", type=int, default=8)
     parser.add_argument("--pa_epsilon", type=float, default=1e-12)
+    parser.add_argument("--pula_dc_guide", choices=("none", "vjp", "fd", "edm_skip"), default="none")
+    parser.add_argument("--pula_dc_last_levels", type=int, default=8)
+    parser.add_argument("--pula_dc_guide_weight", type=float, default=1.0)
+    parser.add_argument("--pula_dc_mix", choices=("replace", "add"), default="replace")
+    parser.add_argument("--pula_dc_fd_rel_eps", type=float, default=0.01)
     parser.add_argument("--dry_run", action="store_true", help="Validate and print the plan without torch/model/data/GPU execution")
     parser.add_argument("--save_pula_handoff", action="store_true",
                         help="Save the FOV state immediately after pULA and before DPS")
@@ -100,6 +105,8 @@ def parse_args():
                         default="shared_cycle_k",
                         help="Grid control for fixed47: same cycle_k for both methods, or "
                              "native DPS random shifts indexed globally.")
+    parser.add_argument("--consensus_mode", choices=("off", "mean", "dual"), default="off",
+                        help="Opt-in alternative: 47-level multi-partition consensus; no pULA update or DPS")
     parser.add_argument("--fixed47_skip_pula", action="store_true",
                         help="Diagnostic control: keep common CG initialization, "
                              "skip all pULA updates, and execute only the chosen DPS tail.")
@@ -137,6 +144,15 @@ def parse_args():
     parser.add_argument("--save_each_trajectory", type=lambda x: bool_value(x), default=True)
     parser.add_argument("--measure_cuda_memory", type=lambda x: bool_value(x), default=True)
     args = parser.parse_args()
+    if args.consensus_mode != "off":
+        if (args.fixed47_switch != 47 or args.score_mode != "patch"
+                or args.grid_mode != "cycle_k" or args.fixed47_patch_policy != "shared_cycle_k"
+                or args.langevin_steps != 5 or args.num_noise_levels != 47
+                or args.pula_variant != "baseline" or args.num_trajectories is not None
+                or args.fixed47_skip_pula or args.diagnose_patch_score
+                or args.diagnose_dps_jacobian):
+            parser.error("consensus pilot requires --fixed47_switch 47, patch/cycle_k, "
+                         "shared_cycle_k, K=5, N=47, baseline variant, no diagnostics")
     if args.fixed47_skip_pula and args.fixed47_switch is None:
         parser.error("--fixed47_skip_pula requires --fixed47_switch.")
     if args.fixed47_switch is not None:
@@ -160,6 +176,17 @@ def parse_args():
         args.dps_tail_steps = 47 - n
     if args.pa_block_size < 1 or not (math.isfinite(args.pa_epsilon) and args.pa_epsilon > 0):
         parser.error("PA block size and epsilon must be positive and finite.")
+    if args.pula_dc_guide != "none":
+        if (args.score_mode != "patch" or args.num_trajectories is not None
+                or args.pula_variant != "baseline"):
+            parser.error("pULA DC guidance supports single-trajectory patch/baseline pULA only.")
+        if args.fixed47_switch == 0:
+            parser.error("pULA DC guidance needs at least one pULA level.")
+        if (args.pula_dc_last_levels < 1
+                or not 0 <= args.pula_dc_guide_weight <= 1
+                or not math.isfinite(args.pula_dc_guide_weight)
+                or not math.isfinite(args.pula_dc_fd_rel_eps) or args.pula_dc_fd_rel_eps <= 0):
+            parser.error("Invalid pULA DC guidance last-levels, weight, or FD relative epsilon.")
     if args.pula_variant != "baseline" and (args.grid_mode != "random_step" or args.score_mode != "patch"):
         parser.error("New pULA variants require patch score and grid_mode=random_step for paired comparisons.")
     if args.num_trajectories is not None:
@@ -421,7 +448,14 @@ def save_image(path, tensor):
 def main():
     args = parse_args()
     if args.dry_run:
-        print(json.dumps(dry_run_plan(args), indent=2, ensure_ascii=False))
+        plan = dry_run_plan(args)
+        if args.consensus_mode != "off":
+            plan.update(algorithm="annealed_multi_partition_consensus_v1",
+                        pula_updates=0, dps_updates=0, logical_updates=47,
+                        logical_nfe_per_trajectory=235, denoiser_evaluations=235,
+                        cg_solves_per_trajectory=48, consensus_levels=47,
+                        consensus_updates=47)
+        print(json.dumps(plan, indent=2, ensure_ascii=False))
         return
     if args.score_mode == "patch":
         # Keep the original patch import order, before any torch/project import.
@@ -436,6 +470,10 @@ def main():
 
     import dnnlib
     from eval_pula.recon_pula import PULASystem, reconstruct, whiten_measurement
+    if args.consensus_mode != "off":
+        from functools import partial
+        from eval_pula.recon_consensus import reconstruct_consensus
+        reconstruct = partial(reconstruct_consensus, mode=args.consensus_mode)
     if args.score_mode == "patch":
         from eval_pula.score_opa import PatchScore, patch_shifts
 
@@ -474,6 +512,8 @@ def main():
         shifts = pula_shifts_by_level[0]
     request = {key: value for key, value in vars(args).items()
                if key not in ("sample_indices", "out_root", "save_pula_handoff", "dry_run")}
+    if args.consensus_mode == "off":
+        request.pop("consensus_mode", None)  # Preserve legacy resume identity.
     if not args.fixed47_skip_pula:
         request.pop("fixed47_skip_pula", None)  # All prior configs stay identical.
     if args.fixed47_switch is None:
@@ -485,6 +525,10 @@ def main():
     for key in ("num_trajectories", "trajectory_batch_size", "trajectory_seed_start",
                 "aggregate_counts", "save_each_trajectory", "measure_cuda_memory"):
         request.pop(key)
+    if args.pula_dc_guide == "none":
+        for key in ("pula_dc_guide", "pula_dc_last_levels",
+                    "pula_dc_guide_weight", "pula_dc_fd_rel_eps", "pula_dc_mix"):
+            request.pop(key, None)  # Preserve legacy resume signatures.
     if args.pula_variant != "balanced_full":
         request.pop("pa_block_size")
         request.pop("pa_epsilon")
@@ -502,6 +546,10 @@ def main():
         shifts=[None if shift is None else list(shift) for shift in shifts], diagnostic_shifts=[list(shift) for shift in diagnostic_shifts],
         dps_shifts=[list(shift) for shift in dps_shifts],
     )
+    if args.consensus_mode != "off":
+        request.update(sampler="opa_annealed_multi_partition_consensus_v1",
+                       main_output="consensus_quadratic_dc_fov",
+                       consensus_denoiser_evaluations=235, consensus_cg_solves=48)
     if args.fixed47_switch is not None:
         request.update(fixed47_global_sigmas=sigmas[1:],
                        fixed47_initialization="same_pula_cg_initialization_all_cases",
@@ -639,6 +687,11 @@ def main():
                     jacobian_records=jacobian_records,
                     save_handoff=save_handoff if args.save_pula_handoff else None,
                     pula_variant=args.pula_variant, pa_block_size=args.pa_block_size, pa_epsilon=args.pa_epsilon,
+                    pula_dc_guide=args.pula_dc_guide,
+                    pula_dc_last_levels=args.pula_dc_last_levels,
+                    pula_dc_guide_weight=args.pula_dc_guide_weight,
+                    pula_dc_mix=args.pula_dc_mix,
+                    pula_dc_fd_rel_eps=args.pula_dc_fd_rel_eps,
                 )
                 if args.score_mode == "full":
                     iterations = [timing["initialization_cg"]["iterations"]] + [

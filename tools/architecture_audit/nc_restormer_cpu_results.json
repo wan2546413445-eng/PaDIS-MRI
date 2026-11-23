@@ -1,0 +1,152 @@
+{
+  "device": "cpu",
+  "device_name": "CPU",
+  "torch_version": "2.15.0+cpu",
+  "dtype": "FP32",
+  "activation_checkpointing": false,
+  "model_summary": {
+    "total_parameters": 15532708,
+    "trainable_parameters": 15532708,
+    "output_zero_initialized": true,
+    "all_adaln_modulations_zero_initialized": true,
+    "conditioned_transformer_blocks": 16,
+    "channels": [
+      80,
+      160,
+      320
+    ],
+    "encoder_blocks": [
+      2,
+      3,
+      4
+    ],
+    "decoder_blocks": [
+      3,
+      2
+    ],
+    "refinement_blocks": 2,
+    "heads": [
+      2,
+      4,
+      8
+    ]
+  },
+  "forward_and_sigma_tests": {
+    "patch_output_shapes": {
+      "16": [
+        1,
+        2,
+        16,
+        16
+      ],
+      "32": [
+        1,
+        2,
+        32,
+        32
+      ],
+      "64": [
+        1,
+        2,
+        64,
+        64
+      ]
+    },
+    "different_sigma_embeddings": {
+      "0.003": {
+        "finite": true,
+        "condition_l2_norm": 0.7787434458732605
+      },
+      "0.1": {
+        "finite": true,
+        "condition_l2_norm": 0.7657777667045593
+      },
+      "1.0": {
+        "finite": true,
+        "condition_l2_norm": 0.7512145042419434
+      },
+      "10.0": {
+        "finite": true,
+        "condition_l2_norm": 0.7331933379173279
+      }
+    },
+    "minimum_pairwise_condition_distance": 0.10185237973928452
+  },
+  "backward_tests": {
+    "16": {
+      "loss": 0.859806478023529,
+      "all_trainable_parameters_have_gradients": true,
+      "all_gradients_finite": true,
+      "memory": {
+        "allocated_mib": null,
+        "reserved_mib": null,
+        "peak_allocated_mib": null
+      }
+    },
+    "32": {
+      "loss": 0.9278601408004761,
+      "all_trainable_parameters_have_gradients": true,
+      "all_gradients_finite": true,
+      "memory": {
+        "allocated_mib": null,
+        "reserved_mib": null,
+        "peak_allocated_mib": null
+      }
+    },
+    "64": {
+      "loss": 0.9224504232406616,
+      "all_trainable_parameters_have_gradients": true,
+      "all_gradients_finite": true,
+      "memory": {
+        "allocated_mib": null,
+        "reserved_mib": null,
+        "peak_allocated_mib": null
+      }
+    }
+  },
+  "snapshot_test": {
+    "full_snapshot_dictionary_roundtrip": true,
+    "restored_model_type": "NoiseConditionedRestormer",
+    "batched_scalar_sigma_output_shape": [
+      4,
+      2,
+      64,
+      64
+    ],
+    "restored_output_shape": [
+      1,
+      2,
+      16,
+      16
+    ],
+    "pickle_bytes": 62318134
+  },
+  "opa_test": {
+    "source_image_shape": [
+      1,
+      2,
+      96,
+      96
+    ],
+    "paired_network_batch_shape": [
+      2,
+      2,
+      64,
+      64
+    ],
+    "loss_map_shape": [
+      1,
+      2,
+      64,
+      64
+    ],
+    "loss": 3.6665914058685303,
+    "all_trainable_parameters_have_gradients": true,
+    "all_gradients_finite": true,
+    "memory": {
+      "allocated_mib": null,
+      "reserved_mib": null,
+      "peak_allocated_mib": null
+    }
+  }
+}
