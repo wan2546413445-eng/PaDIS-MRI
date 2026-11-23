@@ -241,7 +241,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             aux_pixel = weight * confidence * (D_boundary - D_interior.detach()).square()
         else:
             # 双向：两侧均接受辅助梯度，采用 0.5 系数归一化。
-            aux_pixel = 0.5 * weight * confidence * (
+            aux_pixel = weight * confidence * (
                 D_boundary - D_interior
             ).square()
 
