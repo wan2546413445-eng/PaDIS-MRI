@@ -1,0 +1,3596 @@
+[
+  {
+    "cbase": 96,
+    "patch": 16,
+    "total_params": 30623138,
+    "total_macs": 2911137792,
+    "attention_macs": 2457600,
+    "stages": {
+      "Noise embedding": {
+        "params": 185088,
+        "macs": 184320
+      },
+      "Input stem": {
+        "params": 3552,
+        "macs": 884736
+      },
+      "Encoder": {
+        "params": 8716032,
+        "macs": 854949888
+      },
+      "Downsampling": {
+        "params": 1551360,
+        "macs": 56180736
+      },
+      "Bottleneck": {
+        "params": 1625856,
+        "macs": 23838720
+      },
+      "Decoder": {
+        "params": 16986048,
+        "macs": 1749934080
+      },
+      "Upsampling": {
+        "params": 1551360,
+        "macs": 224280576
+      },
+      "Output head": {
+        "params": 3842,
+        "macs": 884736
+      }
+    },
+    "blocks": [
+      {
+        "name": "mapping",
+        "stage": "Noise embedding",
+        "resolution": "1x1",
+        "channels": "96->384",
+        "params": 185088,
+        "macs": 184320,
+        "parts": {
+          "linear": 184320
+        },
+        "attention": false
+      },
+      {
+        "name": "stem",
+        "source_key": "512x512_conv",
+        "stage": "Input stem",
+        "resolution": "16x16",
+        "channels": "4->96",
+        "params": 3552,
+        "macs": 884736,
+        "parts": {
+          "conv": 884736
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "96->192",
+        "params": 591168,
+        "macs": 132194304,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L1",
+        "source_key": "256x256_down",
+        "stage": "Downsampling",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 44900352,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 2359296
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L2",
+        "source_key": "128x128_down",
+        "stage": "Downsampling",
+        "resolution": "4x4",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 11280384,
+        "parts": {
+          "conv0": 5308416,
+          "conv1": 5308416,
+          "affine": 73728,
+          "skip_projection": 589824
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 10690560,
+        "parts": {
+          "conv0": 5308416,
+          "conv1": 5308416,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 10690560,
+        "parts": {
+          "conv0": 5308416,
+          "conv1": 5308416,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 10690560,
+        "parts": {
+          "conv0": 5308416,
+          "conv1": 5308416,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 10690560,
+        "parts": {
+          "conv0": 5308416,
+          "conv1": 5308416,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "bottleneck_B0",
+        "source_key": "128x128_in0",
+        "stage": "Bottleneck",
+        "resolution": "4x4",
+        "channels": "192->192",
+        "params": 887232,
+        "macs": 13148160,
+        "parts": {
+          "conv0": 5308416,
+          "conv1": 5308416,
+          "affine": 73728,
+          "attention_qkv": 1769472,
+          "attention_qk_av": 98304,
+          "attention_projection": 589824
+        },
+        "attention": true
+      },
+      {
+        "name": "bottleneck_B1",
+        "source_key": "128x128_in1",
+        "stage": "Bottleneck",
+        "resolution": "4x4",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 10690560,
+        "parts": {
+          "conv0": 5308416,
+          "conv1": 5308416,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 17178624,
+        "parts": {
+          "conv0": 10616832,
+          "conv1": 5308416,
+          "affine": 73728,
+          "skip_projection": 1179648
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 17178624,
+        "parts": {
+          "conv0": 10616832,
+          "conv1": 5308416,
+          "affine": 73728,
+          "skip_projection": 1179648
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 17178624,
+        "parts": {
+          "conv0": 10616832,
+          "conv1": 5308416,
+          "affine": 73728,
+          "skip_projection": 1179648
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 17178624,
+        "parts": {
+          "conv0": 10616832,
+          "conv1": 5308416,
+          "affine": 73728,
+          "skip_projection": 1179648
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B4",
+        "source_key": "128x128_block4",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 17178624,
+        "parts": {
+          "conv0": 10616832,
+          "conv1": 5308416,
+          "affine": 73728,
+          "skip_projection": 1179648
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L1",
+        "source_key": "256x256_up",
+        "stage": "Upsampling",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 44900352,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 2359296
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B4",
+        "source_key": "256x256_block4",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L0",
+        "source_key": "512x512_up",
+        "stage": "Upsampling",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 179380224,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 9437184
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B4",
+        "source_key": "512x512_block4",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "288->192",
+        "params": 960192,
+        "macs": 226566144,
+        "parts": {
+          "conv0": 127401984,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 14155776
+        },
+        "attention": false
+      },
+      {
+        "name": "head",
+        "source_key": "512x512_aux_norm/aux_conv",
+        "stage": "Output head",
+        "resolution": "16x16",
+        "channels": "192->2",
+        "params": 3842,
+        "macs": 884736,
+        "parts": {
+          "conv": 884736
+        },
+        "attention": false
+      }
+    ]
+  },
+  {
+    "cbase": 96,
+    "patch": 32,
+    "total_params": 30623138,
+    "total_macs": 11637878784,
+    "attention_macs": 11010048,
+    "stages": {
+      "Noise embedding": {
+        "params": 185088,
+        "macs": 184320
+      },
+      "Input stem": {
+        "params": 3552,
+        "macs": 3538944
+      },
+      "Encoder": {
+        "params": 8716032,
+        "macs": 3417145344
+      },
+      "Downsampling": {
+        "params": 1551360,
+        "macs": 224280576
+      },
+      "Bottleneck": {
+        "params": 1625856,
+        "macs": 96092160
+      },
+      "Decoder": {
+        "params": 16986048,
+        "macs": 6996418560
+      },
+      "Upsampling": {
+        "params": 1551360,
+        "macs": 896679936
+      },
+      "Output head": {
+        "params": 3842,
+        "macs": 3538944
+      }
+    },
+    "blocks": [
+      {
+        "name": "mapping",
+        "stage": "Noise embedding",
+        "resolution": "1x1",
+        "channels": "96->384",
+        "params": 185088,
+        "macs": 184320,
+        "parts": {
+          "linear": 184320
+        },
+        "attention": false
+      },
+      {
+        "name": "stem",
+        "source_key": "512x512_conv",
+        "stage": "Input stem",
+        "resolution": "32x32",
+        "channels": "4->96",
+        "params": 3552,
+        "macs": 3538944,
+        "parts": {
+          "conv": 3538944
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "96->192",
+        "params": 591168,
+        "macs": 528556032,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 679550976,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 679550976,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 679550976,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L1",
+        "source_key": "256x256_down",
+        "stage": "Downsampling",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 179380224,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 9437184
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L2",
+        "source_key": "128x128_down",
+        "stage": "Downsampling",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 44900352,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 2359296
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "bottleneck_B0",
+        "source_key": "128x128_in0",
+        "stage": "Bottleneck",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 887232,
+        "macs": 53551104,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728,
+          "attention_qkv": 7077888,
+          "attention_qk_av": 1572864,
+          "attention_projection": 2359296
+        },
+        "attention": true
+      },
+      {
+        "name": "bottleneck_B1",
+        "source_key": "128x128_in1",
+        "stage": "Bottleneck",
+        "resolution": "8x8",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 42541056,
+        "parts": {
+          "conv0": 21233664,
+          "conv1": 21233664,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B4",
+        "source_key": "128x128_block4",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 68493312,
+        "parts": {
+          "conv0": 42467328,
+          "conv1": 21233664,
+          "affine": 73728,
+          "skip_projection": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L1",
+        "source_key": "256x256_up",
+        "stage": "Upsampling",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 179380224,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 9437184
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B4",
+        "source_key": "256x256_block4",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L0",
+        "source_key": "512x512_up",
+        "stage": "Upsampling",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 717299712,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 37748736
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B4",
+        "source_key": "512x512_block4",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "288->192",
+        "params": 960192,
+        "macs": 906043392,
+        "parts": {
+          "conv0": 509607936,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 56623104
+        },
+        "attention": false
+      },
+      {
+        "name": "head",
+        "source_key": "512x512_aux_norm/aux_conv",
+        "stage": "Output head",
+        "resolution": "32x32",
+        "channels": "192->2",
+        "params": 3842,
+        "macs": 3538944,
+        "parts": {
+          "conv": 3538944
+        },
+        "attention": false
+      }
+    ]
+  },
+  {
+    "cbase": 96,
+    "patch": 64,
+    "total_params": 30623138,
+    "total_macs": 46562537472,
+    "attention_macs": 62914560,
+    "stages": {
+      "Noise embedding": {
+        "params": 185088,
+        "macs": 184320
+      },
+      "Input stem": {
+        "params": 3552,
+        "macs": 14155776
+      },
+      "Encoder": {
+        "params": 8716032,
+        "macs": 13665927168
+      },
+      "Downsampling": {
+        "params": 1551360,
+        "macs": 896679936
+      },
+      "Bottleneck": {
+        "params": 1625856,
+        "macs": 402800640
+      },
+      "Decoder": {
+        "params": 16986048,
+        "macs": 27982356480
+      },
+      "Upsampling": {
+        "params": 1551360,
+        "macs": 3586277376
+      },
+      "Output head": {
+        "params": 3842,
+        "macs": 14155776
+      }
+    },
+    "blocks": [
+      {
+        "name": "mapping",
+        "stage": "Noise embedding",
+        "resolution": "1x1",
+        "channels": "96->384",
+        "params": 185088,
+        "macs": 184320,
+        "parts": {
+          "linear": 184320
+        },
+        "attention": false
+      },
+      {
+        "name": "stem",
+        "source_key": "512x512_conv",
+        "stage": "Input stem",
+        "resolution": "64x64",
+        "channels": "4->96",
+        "params": 3552,
+        "macs": 14155776,
+        "parts": {
+          "conv": 14155776
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "96->192",
+        "params": 591168,
+        "macs": 2114002944,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 1358954496,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 2717982720,
+        "parts": {
+          "conv0": 1358954496,
+          "conv1": 1358954496,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 2717982720,
+        "parts": {
+          "conv0": 1358954496,
+          "conv1": 1358954496,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 2717982720,
+        "parts": {
+          "conv0": 1358954496,
+          "conv1": 1358954496,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L1",
+        "source_key": "256x256_down",
+        "stage": "Downsampling",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 717299712,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 37748736
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 679550976,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 679550976,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 679550976,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 679550976,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L2",
+        "source_key": "128x128_down",
+        "stage": "Downsampling",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 179380224,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 9437184
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "bottleneck_B0",
+        "source_key": "128x128_in0",
+        "stage": "Bottleneck",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 887232,
+        "macs": 232857600,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728,
+          "attention_qkv": 28311552,
+          "attention_qk_av": 25165824,
+          "attention_projection": 9437184
+        },
+        "attention": true
+      },
+      {
+        "name": "bottleneck_B1",
+        "source_key": "128x128_in1",
+        "stage": "Bottleneck",
+        "resolution": "16x16",
+        "channels": "192->192",
+        "params": 738624,
+        "macs": 169943040,
+        "parts": {
+          "conv0": 84934656,
+          "conv1": 84934656,
+          "affine": 73728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B4",
+        "source_key": "128x128_block4",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 273752064,
+        "parts": {
+          "conv0": 169869312,
+          "conv1": 84934656,
+          "affine": 73728,
+          "skip_projection": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L1",
+        "source_key": "256x256_up",
+        "stage": "Upsampling",
+        "resolution": "32x32",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 717299712,
+        "parts": {
+          "conv0": 339738624,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 37748736
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B4",
+        "source_key": "256x256_block4",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 1094787072,
+        "parts": {
+          "conv0": 679477248,
+          "conv1": 339738624,
+          "affine": 73728,
+          "skip_projection": 75497472
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L0",
+        "source_key": "512x512_up",
+        "stage": "Upsampling",
+        "resolution": "64x64",
+        "channels": "192->192",
+        "params": 775680,
+        "macs": 2868977664,
+        "parts": {
+          "conv0": 1358954496,
+          "conv1": 1358954496,
+          "affine": 73728,
+          "skip_projection": 150994944
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 4378927104,
+        "parts": {
+          "conv0": 2717908992,
+          "conv1": 1358954496,
+          "affine": 73728,
+          "skip_projection": 301989888
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 4378927104,
+        "parts": {
+          "conv0": 2717908992,
+          "conv1": 1358954496,
+          "affine": 73728,
+          "skip_projection": 301989888
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 4378927104,
+        "parts": {
+          "conv0": 2717908992,
+          "conv1": 1358954496,
+          "affine": 73728,
+          "skip_projection": 301989888
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "384->192",
+        "params": 1144704,
+        "macs": 4378927104,
+        "parts": {
+          "conv0": 2717908992,
+          "conv1": 1358954496,
+          "affine": 73728,
+          "skip_projection": 301989888
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B4",
+        "source_key": "512x512_block4",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "288->192",
+        "params": 960192,
+        "macs": 3623952384,
+        "parts": {
+          "conv0": 2038431744,
+          "conv1": 1358954496,
+          "affine": 73728,
+          "skip_projection": 226492416
+        },
+        "attention": false
+      },
+      {
+        "name": "head",
+        "source_key": "512x512_aux_norm/aux_conv",
+        "stage": "Output head",
+        "resolution": "64x64",
+        "channels": "192->2",
+        "params": 3842,
+        "macs": 14155776,
+        "parts": {
+          "conv": 14155776
+        },
+        "attention": false
+      }
+    ]
+  },
+  {
+    "cbase": 128,
+    "patch": 16,
+    "total_params": 54413186,
+    "total_macs": 5174525952,
+    "attention_macs": 4325376,
+    "stages": {
+      "Noise embedding": {
+        "params": 328704,
+        "macs": 327680
+      },
+      "Input stem": {
+        "params": 4736,
+        "macs": 1179648
+      },
+      "Encoder": {
+        "params": 15488000,
+        "macs": 1519910912
+      },
+      "Downsampling": {
+        "params": 2756608,
+        "macs": 99876864
+      },
+      "Bottleneck": {
+        "params": 2888704,
+        "macs": 42336256
+      },
+      "Decoder": {
+        "params": 30184704,
+        "macs": 3110993920
+      },
+      "Upsampling": {
+        "params": 2756608,
+        "macs": 398721024
+      },
+      "Output head": {
+        "params": 5122,
+        "macs": 1179648
+      }
+    },
+    "blocks": [
+      {
+        "name": "mapping",
+        "stage": "Noise embedding",
+        "resolution": "1x1",
+        "channels": "128->512",
+        "params": 328704,
+        "macs": 327680,
+        "parts": {
+          "linear": 327680
+        },
+        "attention": false
+      },
+      {
+        "name": "stem",
+        "source_key": "512x512_conv",
+        "stage": "Input stem",
+        "resolution": "16x16",
+        "channels": "4->128",
+        "params": 4736,
+        "macs": 1179648,
+        "parts": {
+          "conv": 1179648
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "128->256",
+        "params": 1050368,
+        "macs": 235012096,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L1",
+        "source_key": "256x256_down",
+        "stage": "Downsampling",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 79822848,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 4194304
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L2",
+        "source_key": "128x128_down",
+        "stage": "Downsampling",
+        "resolution": "4x4",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 20054016,
+        "parts": {
+          "conv0": 9437184,
+          "conv1": 9437184,
+          "affine": 131072,
+          "skip_projection": 1048576
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 19005440,
+        "parts": {
+          "conv0": 9437184,
+          "conv1": 9437184,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 19005440,
+        "parts": {
+          "conv0": 9437184,
+          "conv1": 9437184,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 19005440,
+        "parts": {
+          "conv0": 9437184,
+          "conv1": 9437184,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Encoder",
+        "resolution": "4x4",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 19005440,
+        "parts": {
+          "conv0": 9437184,
+          "conv1": 9437184,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "bottleneck_B0",
+        "source_key": "128x128_in0",
+        "stage": "Bottleneck",
+        "resolution": "4x4",
+        "channels": "256->256",
+        "params": 1576192,
+        "macs": 23330816,
+        "parts": {
+          "conv0": 9437184,
+          "conv1": 9437184,
+          "affine": 131072,
+          "attention_qkv": 3145728,
+          "attention_qk_av": 131072,
+          "attention_projection": 1048576
+        },
+        "attention": true
+      },
+      {
+        "name": "bottleneck_B1",
+        "source_key": "128x128_in1",
+        "stage": "Bottleneck",
+        "resolution": "4x4",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 19005440,
+        "parts": {
+          "conv0": 9437184,
+          "conv1": 9437184,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 30539776,
+        "parts": {
+          "conv0": 18874368,
+          "conv1": 9437184,
+          "affine": 131072,
+          "skip_projection": 2097152
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 30539776,
+        "parts": {
+          "conv0": 18874368,
+          "conv1": 9437184,
+          "affine": 131072,
+          "skip_projection": 2097152
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 30539776,
+        "parts": {
+          "conv0": 18874368,
+          "conv1": 9437184,
+          "affine": 131072,
+          "skip_projection": 2097152
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 30539776,
+        "parts": {
+          "conv0": 18874368,
+          "conv1": 9437184,
+          "affine": 131072,
+          "skip_projection": 2097152
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B4",
+        "source_key": "128x128_block4",
+        "stage": "Decoder",
+        "resolution": "4x4",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 30539776,
+        "parts": {
+          "conv0": 18874368,
+          "conv1": 9437184,
+          "affine": 131072,
+          "skip_projection": 2097152
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L1",
+        "source_key": "256x256_up",
+        "stage": "Upsampling",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 79822848,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 4194304
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B4",
+        "source_key": "256x256_block4",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L0",
+        "source_key": "512x512_up",
+        "stage": "Upsampling",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 318898176,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 16777216
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B4",
+        "source_key": "512x512_block4",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "384->256",
+        "params": 1706240,
+        "macs": 402784256,
+        "parts": {
+          "conv0": 226492416,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 25165824
+        },
+        "attention": false
+      },
+      {
+        "name": "head",
+        "source_key": "512x512_aux_norm/aux_conv",
+        "stage": "Output head",
+        "resolution": "16x16",
+        "channels": "256->2",
+        "params": 5122,
+        "macs": 1179648,
+        "parts": {
+          "conv": 1179648
+        },
+        "attention": false
+      }
+    ]
+  },
+  {
+    "cbase": 128,
+    "patch": 32,
+    "total_params": 54413186,
+    "total_macs": 20685717504,
+    "attention_macs": 18874368,
+    "stages": {
+      "Noise embedding": {
+        "params": 328704,
+        "macs": 327680
+      },
+      "Input stem": {
+        "params": 4736,
+        "macs": 4718592
+      },
+      "Encoder": {
+        "params": 15488000,
+        "macs": 6074925056
+      },
+      "Downsampling": {
+        "params": 2756608,
+        "macs": 398721024
+      },
+      "Bottleneck": {
+        "params": 2888704,
+        "macs": 170131456
+      },
+      "Decoder": {
+        "params": 30184704,
+        "macs": 12438077440
+      },
+      "Upsampling": {
+        "params": 2756608,
+        "macs": 1594097664
+      },
+      "Output head": {
+        "params": 5122,
+        "macs": 4718592
+      }
+    },
+    "blocks": [
+      {
+        "name": "mapping",
+        "stage": "Noise embedding",
+        "resolution": "1x1",
+        "channels": "128->512",
+        "params": 328704,
+        "macs": 327680,
+        "parts": {
+          "linear": 327680
+        },
+        "attention": false
+      },
+      {
+        "name": "stem",
+        "source_key": "512x512_conv",
+        "stage": "Input stem",
+        "resolution": "32x32",
+        "channels": "4->128",
+        "params": 4736,
+        "macs": 4718592,
+        "parts": {
+          "conv": 4718592
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "128->256",
+        "params": 1050368,
+        "macs": 939655168,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 1208090624,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 1208090624,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 1208090624,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L1",
+        "source_key": "256x256_down",
+        "stage": "Downsampling",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 318898176,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 16777216
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L2",
+        "source_key": "128x128_down",
+        "stage": "Downsampling",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 79822848,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 4194304
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Encoder",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "bottleneck_B0",
+        "source_key": "128x128_in0",
+        "stage": "Bottleneck",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1576192,
+        "macs": 94502912,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072,
+          "attention_qkv": 12582912,
+          "attention_qk_av": 2097152,
+          "attention_projection": 4194304
+        },
+        "attention": true
+      },
+      {
+        "name": "bottleneck_B1",
+        "source_key": "128x128_in1",
+        "stage": "Bottleneck",
+        "resolution": "8x8",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 75628544,
+        "parts": {
+          "conv0": 37748736,
+          "conv1": 37748736,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B4",
+        "source_key": "128x128_block4",
+        "stage": "Decoder",
+        "resolution": "8x8",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 121765888,
+        "parts": {
+          "conv0": 75497472,
+          "conv1": 37748736,
+          "affine": 131072,
+          "skip_projection": 8388608
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L1",
+        "source_key": "256x256_up",
+        "stage": "Upsampling",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 318898176,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 16777216
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B4",
+        "source_key": "256x256_block4",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L0",
+        "source_key": "512x512_up",
+        "stage": "Upsampling",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 1275199488,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 67108864
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B4",
+        "source_key": "512x512_block4",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "384->256",
+        "params": 1706240,
+        "macs": 1610743808,
+        "parts": {
+          "conv0": 905969664,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 100663296
+        },
+        "attention": false
+      },
+      {
+        "name": "head",
+        "source_key": "512x512_aux_norm/aux_conv",
+        "stage": "Output head",
+        "resolution": "32x32",
+        "channels": "256->2",
+        "params": 5122,
+        "macs": 4718592,
+        "parts": {
+          "conv": 4718592
+        },
+        "attention": false
+      }
+    ]
+  },
+  {
+    "cbase": 128,
+    "patch": 64,
+    "total_params": 54413186,
+    "total_macs": 82754076672,
+    "attention_macs": 100663296,
+    "stages": {
+      "Noise embedding": {
+        "params": 328704,
+        "macs": 327680
+      },
+      "Input stem": {
+        "params": 4736,
+        "macs": 18874368
+      },
+      "Encoder": {
+        "params": 15488000,
+        "macs": 24294981632
+      },
+      "Downsampling": {
+        "params": 2756608,
+        "macs": 1594097664
+      },
+      "Bottleneck": {
+        "params": 2888704,
+        "macs": 704905216
+      },
+      "Decoder": {
+        "params": 30184704,
+        "macs": 49746411520
+      },
+      "Upsampling": {
+        "params": 2756608,
+        "macs": 6375604224
+      },
+      "Output head": {
+        "params": 5122,
+        "macs": 18874368
+      }
+    },
+    "blocks": [
+      {
+        "name": "mapping",
+        "stage": "Noise embedding",
+        "resolution": "1x1",
+        "channels": "128->512",
+        "params": 328704,
+        "macs": 327680,
+        "parts": {
+          "linear": 327680
+        },
+        "attention": false
+      },
+      {
+        "name": "stem",
+        "source_key": "512x512_conv",
+        "stage": "Input stem",
+        "resolution": "64x64",
+        "channels": "4->128",
+        "params": 4736,
+        "macs": 18874368,
+        "parts": {
+          "conv": 18874368
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "128->256",
+        "params": 1050368,
+        "macs": 3758227456,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 2415919104,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 4831969280,
+        "parts": {
+          "conv0": 2415919104,
+          "conv1": 2415919104,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 4831969280,
+        "parts": {
+          "conv0": 2415919104,
+          "conv1": 2415919104,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Encoder",
+        "resolution": "64x64",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 4831969280,
+        "parts": {
+          "conv0": 2415919104,
+          "conv1": 2415919104,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L1",
+        "source_key": "256x256_down",
+        "stage": "Downsampling",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 1275199488,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 67108864
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 1208090624,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 1208090624,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 1208090624,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Encoder",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 1208090624,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_down_L2",
+        "source_key": "128x128_down",
+        "stage": "Downsampling",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 318898176,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 16777216
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "enc_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Encoder",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "bottleneck_B0",
+        "source_key": "128x128_in0",
+        "stage": "Bottleneck",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1576192,
+        "macs": 402784256,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072,
+          "attention_qkv": 50331648,
+          "attention_qk_av": 33554432,
+          "attention_projection": 16777216
+        },
+        "attention": true
+      },
+      {
+        "name": "bottleneck_B1",
+        "source_key": "128x128_in1",
+        "stage": "Bottleneck",
+        "resolution": "16x16",
+        "channels": "256->256",
+        "params": 1312512,
+        "macs": 302120960,
+        "parts": {
+          "conv0": 150994944,
+          "conv1": 150994944,
+          "affine": 131072
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B0",
+        "source_key": "128x128_block0",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B1",
+        "source_key": "128x128_block1",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B2",
+        "source_key": "128x128_block2",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B3",
+        "source_key": "128x128_block3",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L2_B4",
+        "source_key": "128x128_block4",
+        "stage": "Decoder",
+        "resolution": "16x16",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 486670336,
+        "parts": {
+          "conv0": 301989888,
+          "conv1": 150994944,
+          "affine": 131072,
+          "skip_projection": 33554432
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L1",
+        "source_key": "256x256_up",
+        "stage": "Upsampling",
+        "resolution": "32x32",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 1275199488,
+        "parts": {
+          "conv0": 603979776,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 67108864
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B0",
+        "source_key": "256x256_block0",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B1",
+        "source_key": "256x256_block1",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B2",
+        "source_key": "256x256_block2",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B3",
+        "source_key": "256x256_block3",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L1_B4",
+        "source_key": "256x256_block4",
+        "stage": "Decoder",
+        "resolution": "32x32",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 1946288128,
+        "parts": {
+          "conv0": 1207959552,
+          "conv1": 603979776,
+          "affine": 131072,
+          "skip_projection": 134217728
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_up_to_L0",
+        "source_key": "512x512_up",
+        "stage": "Upsampling",
+        "resolution": "64x64",
+        "channels": "256->256",
+        "params": 1378304,
+        "macs": 5100404736,
+        "parts": {
+          "conv0": 2415919104,
+          "conv1": 2415919104,
+          "affine": 131072,
+          "skip_projection": 268435456
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B0",
+        "source_key": "512x512_block0",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 7784759296,
+        "parts": {
+          "conv0": 4831838208,
+          "conv1": 2415919104,
+          "affine": 131072,
+          "skip_projection": 536870912
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B1",
+        "source_key": "512x512_block1",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 7784759296,
+        "parts": {
+          "conv0": 4831838208,
+          "conv1": 2415919104,
+          "affine": 131072,
+          "skip_projection": 536870912
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B2",
+        "source_key": "512x512_block2",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 7784759296,
+        "parts": {
+          "conv0": 4831838208,
+          "conv1": 2415919104,
+          "affine": 131072,
+          "skip_projection": 536870912
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B3",
+        "source_key": "512x512_block3",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "512->256",
+        "params": 2034176,
+        "macs": 7784759296,
+        "parts": {
+          "conv0": 4831838208,
+          "conv1": 2415919104,
+          "affine": 131072,
+          "skip_projection": 536870912
+        },
+        "attention": false
+      },
+      {
+        "name": "dec_L0_B4",
+        "source_key": "512x512_block4",
+        "stage": "Decoder",
+        "resolution": "64x64",
+        "channels": "384->256",
+        "params": 1706240,
+        "macs": 6442582016,
+        "parts": {
+          "conv0": 3623878656,
+          "conv1": 2415919104,
+          "affine": 131072,
+          "skip_projection": 402653184
+        },
+        "attention": false
+      },
+      {
+        "name": "head",
+        "source_key": "512x512_aux_norm/aux_conv",
+        "stage": "Output head",
+        "resolution": "64x64",
+        "channels": "256->2",
+        "params": 5122,
+        "macs": 18874368,
+        "parts": {
+          "conv": 18874368
+        },
+        "attention": false
+      }
+    ]
+  }
+]

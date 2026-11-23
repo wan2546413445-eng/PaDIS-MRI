@@ -42,7 +42,7 @@ ROOT_DATA=${ROOT_DATA:-/mnt/SSD/wsy/data/fastmri_train_batch0_pilot/brain_train_
 # Defaults save both network snapshot and resumable training state
 # approximately every 2000 kimg, plus at the final step.
 TICK=${TICK:-5}
-SNAP=${SNAP:-400}
+SNAP=${SNAP:-200}
 DUMP=${DUMP:-400}
 
 # Optional continuation: point to an existing training-state-XXXXXX.pt.

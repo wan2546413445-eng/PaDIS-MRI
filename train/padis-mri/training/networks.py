@@ -735,7 +735,14 @@ class Patch_EDMPrecond(torch.nn.Module):
         self.hash_channels = hash_channels
 
         self.out_channels = img_channels if out_channels is None else out_channels
-        self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=self.out_channels, label_dim=label_dim, **model_kwargs)
+        if model_type == 'EfficientSongUNet':
+            # Lazy import avoids a circular dependency while leaving all
+            # existing model names and construction paths unchanged.
+            from training.efficient_unet import EfficientSongUNet
+            model_class = EfficientSongUNet
+        else:
+            model_class = globals()[model_type]
+        self.model = model_class(img_resolution=img_resolution, in_channels=img_channels, out_channels=self.out_channels, label_dim=label_dim, **model_kwargs)
 
     def forward(self, x, sigma, x_pos=None, class_labels=None, force_fp32=False, **model_kwargs):
         #输入noisy patch和sigma

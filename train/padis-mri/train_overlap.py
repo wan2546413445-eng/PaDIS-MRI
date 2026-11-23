@@ -78,6 +78,8 @@ def parse_float_list(s):
               show_default=True)
 @click.option('--arch', help='Network architecture', metavar='ddpmpp|ncsnpp|adm',
               type=click.Choice(['ddpmpp', 'ncsnpp', 'adm']), default='ddpmpp', show_default=True)
+@click.option('--backbone', help='DDPM++ denoising backbone', metavar='songunet|efficient_songunet',
+              type=click.Choice(['songunet', 'efficient_songunet']), default='songunet', show_default=True)
 @click.option('--precond', help='Preconditioning & loss function', metavar='vp|ve|edm',
               type=click.Choice(['vp', 've', 'edm', 'pedm']), default='pedm', show_default=True)
 # Hyperparameters.
@@ -233,8 +235,13 @@ def main(**kwargs):
     #     raise click.ClickException(f'--data: {err}')
 
     # Network architecture.
+    if opts.backbone == 'efficient_songunet' and opts.arch != 'ddpmpp':
+        raise click.ClickException('--backbone=efficient_songunet currently requires --arch=ddpmpp')
+    if opts.backbone == 'efficient_songunet' and opts.precond != 'pedm':
+        raise click.ClickException('--backbone=efficient_songunet currently requires --precond=pedm')
     if opts.arch == 'ddpmpp':
-        c.network_kwargs.update(model_type='SongUNet', embedding_type='positional', encoder_type='standard',
+        model_type = 'EfficientSongUNet' if opts.backbone == 'efficient_songunet' else 'SongUNet'
+        c.network_kwargs.update(model_type=model_type, embedding_type='positional', encoder_type='standard',
                                 decoder_type='standard')
         c.network_kwargs.update(channel_mult_noise=1, resample_filter=[1, 1], model_channels=128,
                                 channel_mult=[2, 2, 2], hash_channels=c.hash_channels)

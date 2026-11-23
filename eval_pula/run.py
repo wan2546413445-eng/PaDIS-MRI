@@ -91,6 +91,18 @@ def parse_args():
     parser.add_argument("--gamma", type=float, default=0.5)
     parser.add_argument("--cg_iters", type=int, default=10)
     parser.add_argument("--cg_rtol", type=float, default=1e-6)
+    parser.add_argument("--fixed47_switch", type=int, default=None,
+                        help="Controlled ablation: use one shared 47-level Karras sigma grid; "
+                             "switch first N levels to pULA, remaining levels to DPS. "
+                             "Requires N=47, K=5 for both algorithms.")
+    parser.add_argument("--fixed47_patch_policy",
+                        choices=("shared_cycle_k", "native_global_random"),
+                        default="shared_cycle_k",
+                        help="Grid control for fixed47: same cycle_k for both methods, or "
+                             "native DPS random shifts indexed globally.")
+    parser.add_argument("--fixed47_skip_pula", action="store_true",
+                        help="Diagnostic control: keep common CG initialization, "
+                             "skip all pULA updates, and execute only the chosen DPS tail.")
     parser.add_argument("--dps_tail_steps", type=int, default=0,
                         help="Use the last N levels of the original 78-level PaDIS VE schedule after pULA")
     parser.add_argument("--dps_base_steps", type=int, default=78)
@@ -125,6 +137,27 @@ def parse_args():
     parser.add_argument("--save_each_trajectory", type=lambda x: bool_value(x), default=True)
     parser.add_argument("--measure_cuda_memory", type=lambda x: bool_value(x), default=True)
     args = parser.parse_args()
+    if args.fixed47_skip_pula and args.fixed47_switch is None:
+        parser.error("--fixed47_skip_pula requires --fixed47_switch.")
+    if args.fixed47_switch is not None:
+        n = args.fixed47_switch
+        if args.fixed47_skip_pula and not 0 < n < 47:
+            parser.error("skip-pULA control requires a nonempty DPS tail (1<=switch<=46).")
+        if args.dps_inner_loops != 5 and not (n == 0 and args.dps_inner_loops == 3
+                                             and args.fixed47_patch_policy == "shared_cycle_k"):
+            parser.error("fixed47 accepts DPS inner=5, or switch=0 + shared_cycle_k + inner=3.")
+        if not 0 <= n <= 47:
+            parser.error("--fixed47_switch must be in [0,47].")
+        if (args.score_mode != "patch" or args.grid_mode != "cycle_k"
+                or args.num_noise_levels != 47 or args.langevin_steps != 5
+                or args.dps_base_steps != 47
+                or args.dps_tail_sigma_max is not None):
+            parser.error("fixed47 requires patch/cycle_k, N=47, pULA K=5, "
+                         "DPS base=47 and no custom DPS tail sigma max.")
+        if (not math.isclose(args.sigma_max, args.dps_sigma_max, rel_tol=0, abs_tol=1e-12)
+                or not math.isclose(args.sigma_min, args.dps_sigma_min, rel_tol=0, abs_tol=1e-12)):
+            parser.error("fixed47 requires identical pULA and DPS sigma_max/min.")
+        args.dps_tail_steps = 47 - n
     if args.pa_block_size < 1 or not (math.isfinite(args.pa_epsilon) and args.pa_epsilon > 0):
         parser.error("PA block size and epsilon must be positive and finite.")
     if args.pula_variant != "baseline" and (args.grid_mode != "random_step" or args.score_mode != "patch"):
@@ -198,6 +231,13 @@ def sigma_schedule(args):
 
 def sampling_schedule(args):
     """Original schedule and handoff calculation, shared with CPU dry-run."""
+    if args.fixed47_switch is not None:
+        # All cases share EXACTLY the same 47 descending Karras sigma values.
+        # The leading sigma is used only to initialize the pULA CG state;
+        # sigma[1:] contains all 47 actual update-layer sigmas.
+        grid = karras_schedule(47, args.sigma_min, args.sigma_max, args.dps_rho)
+        switch = args.fixed47_switch
+        return [args.sigma_max, *grid], grid[switch:], (0 if args.fixed47_skip_pula else switch)
     sigmas = sigma_schedule(args)
     if args.dps_tail_steps:
         if args.dps_tail_sigma_max is None:
@@ -218,7 +258,9 @@ def dry_run_plan(args):
     sigmas, dps_sigmas, levels = sampling_schedule(args)
     updates = levels * args.langevin_steps
     dps = len(dps_sigmas) * args.dps_inner_loops
-    return {**vars(args), "partition_mode": args.grid_mode, "pula_levels": levels,
+    return {**vars(args), "partition_mode": args.grid_mode,
+            "fixed47_global_sigmas": sigmas[1:] if args.fixed47_switch is not None else None,
+            "pula_levels": levels,
             "sigma_init": sigmas[0], "pula_handoff_sigma": sigmas[levels],
             "dps_first_sigma": dps_sigmas[0] if dps_sigmas else None,
             "pula_updates": updates, "dps_updates": dps, "logical_updates": updates + dps,
@@ -408,8 +450,19 @@ def main():
         shifts, diagnostic_shifts = [None] * args.langevin_steps, []
     # BART uses sigma_max at initialization and N lower, log-spaced corrector levels.
     sigmas, dps_sigmas, pula_levels = sampling_schedule(args)
-    dps_shifts = (random_shifts(len(dps_sigmas) * args.dps_inner_loops, args.pad, args.grid_seed)
-                  if dps_sigmas else [])
+    if args.fixed47_switch is not None:
+        if args.fixed47_patch_policy == "shared_cycle_k":
+            # Same K partition offsets at every noise level for BOTH operators.
+            # For 47x3 select the first 3 of the shared 5 offsets at EACH level.
+            # Existing 47x5 paths are byte-for-byte equivalent to the old rule.
+            dps_shifts = shifts[:args.dps_inner_loops] * len(dps_sigmas)
+        else:
+            # Native DPS random partitions, but tied to global sigma level.
+            all_dps_shifts = random_shifts(47 * args.dps_inner_loops, args.pad, args.grid_seed)
+            dps_shifts = all_dps_shifts[args.fixed47_switch * args.dps_inner_loops:]
+    else:
+        dps_shifts = (random_shifts(len(dps_sigmas) * args.dps_inner_loops, args.pad, args.grid_seed)
+                      if dps_sigmas else [])
     # Handoff saving requests an additional artifact for the same trajectory.
     pula_shifts_by_level = None
     if args.score_mode == "patch" and args.grid_mode == "random_step":
@@ -421,6 +474,11 @@ def main():
         shifts = pula_shifts_by_level[0]
     request = {key: value for key, value in vars(args).items()
                if key not in ("sample_indices", "out_root", "save_pula_handoff", "dry_run")}
+    if not args.fixed47_skip_pula:
+        request.pop("fixed47_skip_pula", None)  # All prior configs stay identical.
+    if args.fixed47_switch is None:
+        request.pop("fixed47_switch", None)  # Keep old configs resume-compatible.
+        request.pop("fixed47_patch_policy", None)
     if not args.diagnose_dps_jacobian:
         for key in ("diagnose_dps_jacobian", "jacobian_levels", "jacobian_inner_steps"):
             request.pop(key)
@@ -444,6 +502,10 @@ def main():
         shifts=[None if shift is None else list(shift) for shift in shifts], diagnostic_shifts=[list(shift) for shift in diagnostic_shifts],
         dps_shifts=[list(shift) for shift in dps_shifts],
     )
+    if args.fixed47_switch is not None:
+        request.update(fixed47_global_sigmas=sigmas[1:],
+                       fixed47_initialization="same_pula_cg_initialization_all_cases",
+                       fixed47_partition_policy=args.fixed47_patch_policy)
     if args.score_mode == "patch":
         request.update(patch_batch=int(os.environ.get("PADIS_PATCH_BATCH", 49)),
                        patch_checkpoint=os.environ.get("PADIS_PATCH_CHECKPOINT", "0"))

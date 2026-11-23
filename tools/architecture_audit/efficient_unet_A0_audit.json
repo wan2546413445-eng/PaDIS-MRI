@@ -1,0 +1,3798 @@
+{
+  "convention": "1 MAC = 2 FLOPs; learned convolution/linear and QK/AV attention only",
+  "instantiated_params": {
+    "SongUNet C96": 30623138,
+    "A0 EfficientSongUNet": 14925218
+  },
+  "results": [
+    {
+      "cbase": 96,
+      "patch": 16,
+      "total_params": 30623138,
+      "total_macs": 2911137792,
+      "attention_macs": 2457600,
+      "stages": {
+        "Noise embedding": {
+          "params": 185088,
+          "macs": 184320
+        },
+        "Input stem": {
+          "params": 3552,
+          "macs": 884736
+        },
+        "Encoder": {
+          "params": 8716032,
+          "macs": 854949888
+        },
+        "Downsampling": {
+          "params": 1551360,
+          "macs": 56180736
+        },
+        "Bottleneck": {
+          "params": 1625856,
+          "macs": 23838720
+        },
+        "Decoder": {
+          "params": 16986048,
+          "macs": 1749934080
+        },
+        "Upsampling": {
+          "params": 1551360,
+          "macs": 224280576
+        },
+        "Output head": {
+          "params": 3842,
+          "macs": 884736
+        }
+      },
+      "blocks": [
+        {
+          "name": "mapping",
+          "stage": "Noise embedding",
+          "resolution": "1x1",
+          "channels": "96->384",
+          "params": 185088,
+          "macs": 184320,
+          "parts": {
+            "linear": 184320
+          },
+          "attention": false
+        },
+        {
+          "name": "stem",
+          "source_key": "512x512_conv",
+          "stage": "Input stem",
+          "resolution": "16x16",
+          "channels": "4->96",
+          "params": 3552,
+          "macs": 884736,
+          "parts": {
+            "conv": 884736
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B0",
+          "source_key": "512x512_block0",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "96->192",
+          "params": 591168,
+          "macs": 132194304,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B1",
+          "source_key": "512x512_block1",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B2",
+          "source_key": "512x512_block2",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B3",
+          "source_key": "512x512_block3",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L1",
+          "source_key": "256x256_down",
+          "stage": "Downsampling",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 44900352,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 2359296
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B0",
+          "source_key": "256x256_block0",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B1",
+          "source_key": "256x256_block1",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B2",
+          "source_key": "256x256_block2",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B3",
+          "source_key": "256x256_block3",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L2",
+          "source_key": "128x128_down",
+          "stage": "Downsampling",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 11280384,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "affine": 73728,
+            "skip_projection": 589824
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B0",
+          "source_key": "128x128_block0",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 10690560,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B1",
+          "source_key": "128x128_block1",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 10690560,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B2",
+          "source_key": "128x128_block2",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 10690560,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B3",
+          "source_key": "128x128_block3",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 10690560,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "bottleneck_B0",
+          "source_key": "128x128_in0",
+          "stage": "Bottleneck",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 887232,
+          "macs": 13148160,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "affine": 73728,
+            "attention_qkv": 1769472,
+            "attention_qk_av": 98304,
+            "attention_projection": 589824
+          },
+          "attention": true
+        },
+        {
+          "name": "bottleneck_B1",
+          "source_key": "128x128_in1",
+          "stage": "Bottleneck",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 10690560,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B0",
+          "source_key": "128x128_block0",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 17178624,
+          "parts": {
+            "conv0": 10616832,
+            "conv1": 5308416,
+            "affine": 73728,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B1",
+          "source_key": "128x128_block1",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 17178624,
+          "parts": {
+            "conv0": 10616832,
+            "conv1": 5308416,
+            "affine": 73728,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B2",
+          "source_key": "128x128_block2",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 17178624,
+          "parts": {
+            "conv0": 10616832,
+            "conv1": 5308416,
+            "affine": 73728,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B3",
+          "source_key": "128x128_block3",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 17178624,
+          "parts": {
+            "conv0": 10616832,
+            "conv1": 5308416,
+            "affine": 73728,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B4",
+          "source_key": "128x128_block4",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 17178624,
+          "parts": {
+            "conv0": 10616832,
+            "conv1": 5308416,
+            "affine": 73728,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L1",
+          "source_key": "256x256_up",
+          "stage": "Upsampling",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 44900352,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 2359296
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B0",
+          "source_key": "256x256_block0",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B1",
+          "source_key": "256x256_block1",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B2",
+          "source_key": "256x256_block2",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B3",
+          "source_key": "256x256_block3",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B4",
+          "source_key": "256x256_block4",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L0",
+          "source_key": "512x512_up",
+          "stage": "Upsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B0",
+          "source_key": "512x512_block0",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B1",
+          "source_key": "512x512_block1",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B2",
+          "source_key": "512x512_block2",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B3",
+          "source_key": "512x512_block3",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B4",
+          "source_key": "512x512_block4",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "288->192",
+          "params": 960192,
+          "macs": 226566144,
+          "parts": {
+            "conv0": 127401984,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 14155776
+          },
+          "attention": false
+        },
+        {
+          "name": "head",
+          "source_key": "512x512_aux_norm/aux_conv",
+          "stage": "Output head",
+          "resolution": "16x16",
+          "channels": "192->2",
+          "params": 3842,
+          "macs": 884736,
+          "parts": {
+            "conv": 884736
+          },
+          "attention": false
+        }
+      ],
+      "network": "SongUNet C96",
+      "total_flops": 5822275584
+    },
+    {
+      "network": "A0 EfficientSongUNet",
+      "cbase": 96,
+      "patch": 16,
+      "total_params": 14925218,
+      "total_macs": 1005993984,
+      "total_flops": 2011987968,
+      "attention_macs": 2457600,
+      "stages": {
+        "Noise embedding": {
+          "params": 185088,
+          "macs": 184320
+        },
+        "Input stem": {
+          "params": 3552,
+          "macs": 884736
+        },
+        "Encoder": {
+          "params": 3665664,
+          "macs": 208134144
+        },
+        "Downsampling": {
+          "params": 1551360,
+          "macs": 56180736
+        },
+        "Bottleneck": {
+          "params": 1194240,
+          "macs": 15808512
+        },
+        "Decoder": {
+          "params": 6770112,
+          "macs": 499636224
+        },
+        "Upsampling": {
+          "params": 1551360,
+          "macs": 224280576
+        },
+        "Output head": {
+          "params": 3842,
+          "macs": 884736
+        }
+      },
+      "blocks": [
+        {
+          "name": "mapping",
+          "stage": "Noise embedding",
+          "resolution": "1x1",
+          "channels": "96->384",
+          "params": 185088,
+          "macs": 184320,
+          "parts": {
+            "linear": 184320
+          },
+          "attention": false
+        },
+        {
+          "name": "stem",
+          "source_key": "512x512_conv",
+          "stage": "Input stem",
+          "resolution": "16x16",
+          "channels": "4->96",
+          "params": 3552,
+          "macs": 884736,
+          "parts": {
+            "conv": 884736
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B0",
+          "source_key": "512x512_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "96->192 (hidden=384)",
+          "params": 288576,
+          "macs": 35635200,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B1",
+          "source_key": "512x512_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B2",
+          "source_key": "512x512_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B3",
+          "source_key": "512x512_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L1",
+          "source_key": "256x256_down",
+          "block_type": "UNetBlock",
+          "stage": "Downsampling",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 44900352,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "sigma_projection": 73728,
+            "skip_projection": 2359296
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B0",
+          "source_key": "256x256_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B1",
+          "source_key": "256x256_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B2",
+          "source_key": "256x256_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B3",
+          "source_key": "256x256_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L2",
+          "source_key": "128x128_down",
+          "block_type": "UNetBlock",
+          "stage": "Downsampling",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 11280384,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "sigma_projection": 73728,
+            "skip_projection": 589824
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B0",
+          "source_key": "128x128_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 2660352,
+          "parts": {
+            "pointwise_expansion": 1179648,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B1",
+          "source_key": "128x128_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 2660352,
+          "parts": {
+            "pointwise_expansion": 1179648,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B2",
+          "source_key": "128x128_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 2660352,
+          "parts": {
+            "pointwise_expansion": 1179648,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B3",
+          "source_key": "128x128_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "4x4",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 2660352,
+          "parts": {
+            "pointwise_expansion": 1179648,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "bottleneck_B0",
+          "source_key": "128x128_in0",
+          "block_type": "UNetBlock",
+          "stage": "Bottleneck",
+          "resolution": "4x4",
+          "channels": "192->192",
+          "params": 887232,
+          "macs": 13148160,
+          "parts": {
+            "conv0": 5308416,
+            "conv1": 5308416,
+            "sigma_projection": 73728,
+            "attention_qkv": 1769472,
+            "attention_qk_av": 98304,
+            "attention_projection": 589824
+          },
+          "attention": true
+        },
+        {
+          "name": "bottleneck_B1",
+          "source_key": "128x128_in1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Bottleneck",
+          "resolution": "4x4",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 2660352,
+          "parts": {
+            "pointwise_expansion": 1179648,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B0",
+          "source_key": "128x128_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 5019648,
+          "parts": {
+            "pointwise_expansion": 2359296,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B1",
+          "source_key": "128x128_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 5019648,
+          "parts": {
+            "pointwise_expansion": 2359296,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B2",
+          "source_key": "128x128_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 5019648,
+          "parts": {
+            "pointwise_expansion": 2359296,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B3",
+          "source_key": "128x128_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 5019648,
+          "parts": {
+            "pointwise_expansion": 2359296,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B4",
+          "source_key": "128x128_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "4x4",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 5019648,
+          "parts": {
+            "pointwise_expansion": 2359296,
+            "depthwise_spatial": 153600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 1179648,
+            "skip_projection": 1179648
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L1",
+          "source_key": "256x256_up",
+          "block_type": "UNetBlock",
+          "stage": "Upsampling",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 44900352,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "sigma_projection": 73728,
+            "skip_projection": 2359296
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B0",
+          "source_key": "256x256_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B1",
+          "source_key": "256x256_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B2",
+          "source_key": "256x256_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B3",
+          "source_key": "256x256_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B4",
+          "source_key": "256x256_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L0",
+          "source_key": "512x512_up",
+          "block_type": "UNetBlock",
+          "stage": "Upsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "sigma_projection": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B0",
+          "source_key": "512x512_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B1",
+          "source_key": "512x512_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B2",
+          "source_key": "512x512_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B3",
+          "source_key": "512x512_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B4",
+          "source_key": "512x512_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "288->192 (hidden=384)",
+          "params": 399552,
+          "macs": 63946752,
+          "parts": {
+            "pointwise_expansion": 28311552,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 14155776
+          },
+          "attention": false
+        },
+        {
+          "name": "head",
+          "source_key": "512x512_aux_norm/aux_conv",
+          "stage": "Output head",
+          "resolution": "16x16",
+          "channels": "192->2",
+          "params": 3842,
+          "macs": 884736,
+          "parts": {
+            "conv": 884736
+          },
+          "attention": false
+        }
+      ]
+    },
+    {
+      "cbase": 96,
+      "patch": 32,
+      "total_params": 30623138,
+      "total_macs": 11637878784,
+      "attention_macs": 11010048,
+      "stages": {
+        "Noise embedding": {
+          "params": 185088,
+          "macs": 184320
+        },
+        "Input stem": {
+          "params": 3552,
+          "macs": 3538944
+        },
+        "Encoder": {
+          "params": 8716032,
+          "macs": 3417145344
+        },
+        "Downsampling": {
+          "params": 1551360,
+          "macs": 224280576
+        },
+        "Bottleneck": {
+          "params": 1625856,
+          "macs": 96092160
+        },
+        "Decoder": {
+          "params": 16986048,
+          "macs": 6996418560
+        },
+        "Upsampling": {
+          "params": 1551360,
+          "macs": 896679936
+        },
+        "Output head": {
+          "params": 3842,
+          "macs": 3538944
+        }
+      },
+      "blocks": [
+        {
+          "name": "mapping",
+          "stage": "Noise embedding",
+          "resolution": "1x1",
+          "channels": "96->384",
+          "params": 185088,
+          "macs": 184320,
+          "parts": {
+            "linear": 184320
+          },
+          "attention": false
+        },
+        {
+          "name": "stem",
+          "source_key": "512x512_conv",
+          "stage": "Input stem",
+          "resolution": "32x32",
+          "channels": "4->96",
+          "params": 3552,
+          "macs": 3538944,
+          "parts": {
+            "conv": 3538944
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B0",
+          "source_key": "512x512_block0",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "96->192",
+          "params": 591168,
+          "macs": 528556032,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B1",
+          "source_key": "512x512_block1",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 679550976,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B2",
+          "source_key": "512x512_block2",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 679550976,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B3",
+          "source_key": "512x512_block3",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 679550976,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L1",
+          "source_key": "256x256_down",
+          "stage": "Downsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B0",
+          "source_key": "256x256_block0",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B1",
+          "source_key": "256x256_block1",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B2",
+          "source_key": "256x256_block2",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B3",
+          "source_key": "256x256_block3",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L2",
+          "source_key": "128x128_down",
+          "stage": "Downsampling",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 44900352,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 2359296
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B0",
+          "source_key": "128x128_block0",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B1",
+          "source_key": "128x128_block1",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B2",
+          "source_key": "128x128_block2",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B3",
+          "source_key": "128x128_block3",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "bottleneck_B0",
+          "source_key": "128x128_in0",
+          "stage": "Bottleneck",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 887232,
+          "macs": 53551104,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728,
+            "attention_qkv": 7077888,
+            "attention_qk_av": 1572864,
+            "attention_projection": 2359296
+          },
+          "attention": true
+        },
+        {
+          "name": "bottleneck_B1",
+          "source_key": "128x128_in1",
+          "stage": "Bottleneck",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 42541056,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B0",
+          "source_key": "128x128_block0",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B1",
+          "source_key": "128x128_block1",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B2",
+          "source_key": "128x128_block2",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B3",
+          "source_key": "128x128_block3",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B4",
+          "source_key": "128x128_block4",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 68493312,
+          "parts": {
+            "conv0": 42467328,
+            "conv1": 21233664,
+            "affine": 73728,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L1",
+          "source_key": "256x256_up",
+          "stage": "Upsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B0",
+          "source_key": "256x256_block0",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B1",
+          "source_key": "256x256_block1",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B2",
+          "source_key": "256x256_block2",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B3",
+          "source_key": "256x256_block3",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B4",
+          "source_key": "256x256_block4",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L0",
+          "source_key": "512x512_up",
+          "stage": "Upsampling",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 717299712,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 37748736
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B0",
+          "source_key": "512x512_block0",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B1",
+          "source_key": "512x512_block1",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B2",
+          "source_key": "512x512_block2",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B3",
+          "source_key": "512x512_block3",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B4",
+          "source_key": "512x512_block4",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "288->192",
+          "params": 960192,
+          "macs": 906043392,
+          "parts": {
+            "conv0": 509607936,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 56623104
+          },
+          "attention": false
+        },
+        {
+          "name": "head",
+          "source_key": "512x512_aux_norm/aux_conv",
+          "stage": "Output head",
+          "resolution": "32x32",
+          "channels": "192->2",
+          "params": 3842,
+          "macs": 3538944,
+          "parts": {
+            "conv": 3538944
+          },
+          "attention": false
+        }
+      ],
+      "network": "SongUNet C96",
+      "total_flops": 23275757568
+    },
+    {
+      "network": "A0 EfficientSongUNet",
+      "cbase": 96,
+      "patch": 32,
+      "total_params": 14925218,
+      "total_macs": 4011110400,
+      "total_flops": 8022220800,
+      "attention_macs": 11010048,
+      "stages": {
+        "Noise embedding": {
+          "params": 185088,
+          "macs": 184320
+        },
+        "Input stem": {
+          "params": 3552,
+          "macs": 3538944
+        },
+        "Encoder": {
+          "params": 3665664,
+          "macs": 827228160
+        },
+        "Downsampling": {
+          "params": 1551360,
+          "macs": 224280576
+        },
+        "Bottleneck": {
+          "params": 1194240,
+          "macs": 63750144
+        },
+        "Decoder": {
+          "params": 6770112,
+          "macs": 1991909376
+        },
+        "Upsampling": {
+          "params": 1551360,
+          "macs": 896679936
+        },
+        "Output head": {
+          "params": 3842,
+          "macs": 3538944
+        }
+      },
+      "blocks": [
+        {
+          "name": "mapping",
+          "stage": "Noise embedding",
+          "resolution": "1x1",
+          "channels": "96->384",
+          "params": 185088,
+          "macs": 184320,
+          "parts": {
+            "linear": 184320
+          },
+          "attention": false
+        },
+        {
+          "name": "stem",
+          "source_key": "512x512_conv",
+          "stage": "Input stem",
+          "resolution": "32x32",
+          "channels": "4->96",
+          "params": 3552,
+          "macs": 3538944,
+          "parts": {
+            "conv": 3538944
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B0",
+          "source_key": "512x512_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "96->192 (hidden=384)",
+          "params": 288576,
+          "macs": 142098432,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B1",
+          "source_key": "512x512_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 160972800,
+          "parts": {
+            "pointwise_expansion": 75497472,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B2",
+          "source_key": "512x512_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 160972800,
+          "parts": {
+            "pointwise_expansion": 75497472,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B3",
+          "source_key": "512x512_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 160972800,
+          "parts": {
+            "pointwise_expansion": 75497472,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L1",
+          "source_key": "256x256_down",
+          "block_type": "UNetBlock",
+          "stage": "Downsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "sigma_projection": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B0",
+          "source_key": "256x256_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B1",
+          "source_key": "256x256_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B2",
+          "source_key": "256x256_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B3",
+          "source_key": "256x256_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L2",
+          "source_key": "128x128_down",
+          "block_type": "UNetBlock",
+          "stage": "Downsampling",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 44900352,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "sigma_projection": 73728,
+            "skip_projection": 2359296
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B0",
+          "source_key": "128x128_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B1",
+          "source_key": "128x128_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B2",
+          "source_key": "128x128_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B3",
+          "source_key": "128x128_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "bottleneck_B0",
+          "source_key": "128x128_in0",
+          "block_type": "UNetBlock",
+          "stage": "Bottleneck",
+          "resolution": "8x8",
+          "channels": "192->192",
+          "params": 887232,
+          "macs": 53551104,
+          "parts": {
+            "conv0": 21233664,
+            "conv1": 21233664,
+            "sigma_projection": 73728,
+            "attention_qkv": 7077888,
+            "attention_qk_av": 1572864,
+            "attention_projection": 2359296
+          },
+          "attention": true
+        },
+        {
+          "name": "bottleneck_B1",
+          "source_key": "128x128_in1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Bottleneck",
+          "resolution": "8x8",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 10199040,
+          "parts": {
+            "pointwise_expansion": 4718592,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B0",
+          "source_key": "128x128_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B1",
+          "source_key": "128x128_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B2",
+          "source_key": "128x128_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B3",
+          "source_key": "128x128_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B4",
+          "source_key": "128x128_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "8x8",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 19636224,
+          "parts": {
+            "pointwise_expansion": 9437184,
+            "depthwise_spatial": 614400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 4718592,
+            "skip_projection": 4718592
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L1",
+          "source_key": "256x256_up",
+          "block_type": "UNetBlock",
+          "stage": "Upsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "sigma_projection": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B0",
+          "source_key": "256x256_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B1",
+          "source_key": "256x256_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B2",
+          "source_key": "256x256_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B3",
+          "source_key": "256x256_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B4",
+          "source_key": "256x256_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L0",
+          "source_key": "512x512_up",
+          "block_type": "UNetBlock",
+          "stage": "Upsampling",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 717299712,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "sigma_projection": 73728,
+            "skip_projection": 37748736
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B0",
+          "source_key": "512x512_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B1",
+          "source_key": "512x512_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B2",
+          "source_key": "512x512_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B3",
+          "source_key": "512x512_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B4",
+          "source_key": "512x512_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "288->192 (hidden=384)",
+          "params": 399552,
+          "macs": 255344640,
+          "parts": {
+            "pointwise_expansion": 113246208,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 56623104
+          },
+          "attention": false
+        },
+        {
+          "name": "head",
+          "source_key": "512x512_aux_norm/aux_conv",
+          "stage": "Output head",
+          "resolution": "32x32",
+          "channels": "192->2",
+          "params": 3842,
+          "macs": 3538944,
+          "parts": {
+            "conv": 3538944
+          },
+          "attention": false
+        }
+      ]
+    },
+    {
+      "cbase": 96,
+      "patch": 64,
+      "total_params": 30623138,
+      "total_macs": 46562537472,
+      "attention_macs": 62914560,
+      "stages": {
+        "Noise embedding": {
+          "params": 185088,
+          "macs": 184320
+        },
+        "Input stem": {
+          "params": 3552,
+          "macs": 14155776
+        },
+        "Encoder": {
+          "params": 8716032,
+          "macs": 13665927168
+        },
+        "Downsampling": {
+          "params": 1551360,
+          "macs": 896679936
+        },
+        "Bottleneck": {
+          "params": 1625856,
+          "macs": 402800640
+        },
+        "Decoder": {
+          "params": 16986048,
+          "macs": 27982356480
+        },
+        "Upsampling": {
+          "params": 1551360,
+          "macs": 3586277376
+        },
+        "Output head": {
+          "params": 3842,
+          "macs": 14155776
+        }
+      },
+      "blocks": [
+        {
+          "name": "mapping",
+          "stage": "Noise embedding",
+          "resolution": "1x1",
+          "channels": "96->384",
+          "params": 185088,
+          "macs": 184320,
+          "parts": {
+            "linear": 184320
+          },
+          "attention": false
+        },
+        {
+          "name": "stem",
+          "source_key": "512x512_conv",
+          "stage": "Input stem",
+          "resolution": "64x64",
+          "channels": "4->96",
+          "params": 3552,
+          "macs": 14155776,
+          "parts": {
+            "conv": 14155776
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B0",
+          "source_key": "512x512_block0",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "96->192",
+          "params": 591168,
+          "macs": 2114002944,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 1358954496,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B1",
+          "source_key": "512x512_block1",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 2717982720,
+          "parts": {
+            "conv0": 1358954496,
+            "conv1": 1358954496,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B2",
+          "source_key": "512x512_block2",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 2717982720,
+          "parts": {
+            "conv0": 1358954496,
+            "conv1": 1358954496,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B3",
+          "source_key": "512x512_block3",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 2717982720,
+          "parts": {
+            "conv0": 1358954496,
+            "conv1": 1358954496,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L1",
+          "source_key": "256x256_down",
+          "stage": "Downsampling",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 717299712,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 37748736
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B0",
+          "source_key": "256x256_block0",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 679550976,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B1",
+          "source_key": "256x256_block1",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 679550976,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B2",
+          "source_key": "256x256_block2",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 679550976,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B3",
+          "source_key": "256x256_block3",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 679550976,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L2",
+          "source_key": "128x128_down",
+          "stage": "Downsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B0",
+          "source_key": "128x128_block0",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B1",
+          "source_key": "128x128_block1",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B2",
+          "source_key": "128x128_block2",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B3",
+          "source_key": "128x128_block3",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "bottleneck_B0",
+          "source_key": "128x128_in0",
+          "stage": "Bottleneck",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 887232,
+          "macs": 232857600,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728,
+            "attention_qkv": 28311552,
+            "attention_qk_av": 25165824,
+            "attention_projection": 9437184
+          },
+          "attention": true
+        },
+        {
+          "name": "bottleneck_B1",
+          "source_key": "128x128_in1",
+          "stage": "Bottleneck",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 738624,
+          "macs": 169943040,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "affine": 73728
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B0",
+          "source_key": "128x128_block0",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B1",
+          "source_key": "128x128_block1",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B2",
+          "source_key": "128x128_block2",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B3",
+          "source_key": "128x128_block3",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B4",
+          "source_key": "128x128_block4",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 273752064,
+          "parts": {
+            "conv0": 169869312,
+            "conv1": 84934656,
+            "affine": 73728,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L1",
+          "source_key": "256x256_up",
+          "stage": "Upsampling",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 717299712,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 37748736
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B0",
+          "source_key": "256x256_block0",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B1",
+          "source_key": "256x256_block1",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B2",
+          "source_key": "256x256_block2",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B3",
+          "source_key": "256x256_block3",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B4",
+          "source_key": "256x256_block4",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 1094787072,
+          "parts": {
+            "conv0": 679477248,
+            "conv1": 339738624,
+            "affine": 73728,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L0",
+          "source_key": "512x512_up",
+          "stage": "Upsampling",
+          "resolution": "64x64",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 2868977664,
+          "parts": {
+            "conv0": 1358954496,
+            "conv1": 1358954496,
+            "affine": 73728,
+            "skip_projection": 150994944
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B0",
+          "source_key": "512x512_block0",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 4378927104,
+          "parts": {
+            "conv0": 2717908992,
+            "conv1": 1358954496,
+            "affine": 73728,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B1",
+          "source_key": "512x512_block1",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 4378927104,
+          "parts": {
+            "conv0": 2717908992,
+            "conv1": 1358954496,
+            "affine": 73728,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B2",
+          "source_key": "512x512_block2",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 4378927104,
+          "parts": {
+            "conv0": 2717908992,
+            "conv1": 1358954496,
+            "affine": 73728,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B3",
+          "source_key": "512x512_block3",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192",
+          "params": 1144704,
+          "macs": 4378927104,
+          "parts": {
+            "conv0": 2717908992,
+            "conv1": 1358954496,
+            "affine": 73728,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B4",
+          "source_key": "512x512_block4",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "288->192",
+          "params": 960192,
+          "macs": 3623952384,
+          "parts": {
+            "conv0": 2038431744,
+            "conv1": 1358954496,
+            "affine": 73728,
+            "skip_projection": 226492416
+          },
+          "attention": false
+        },
+        {
+          "name": "head",
+          "source_key": "512x512_aux_norm/aux_conv",
+          "stage": "Output head",
+          "resolution": "64x64",
+          "channels": "192->2",
+          "params": 3842,
+          "macs": 14155776,
+          "parts": {
+            "conv": 14155776
+          },
+          "attention": false
+        }
+      ],
+      "network": "SongUNet C96",
+      "total_flops": 93125074944
+    },
+    {
+      "network": "A0 EfficientSongUNet",
+      "cbase": 96,
+      "patch": 64,
+      "total_params": 14925218,
+      "total_macs": 16049270784,
+      "total_flops": 32098541568,
+      "attention_macs": 62914560,
+      "stages": {
+        "Noise embedding": {
+          "params": 185088,
+          "macs": 184320
+        },
+        "Input stem": {
+          "params": 3552,
+          "macs": 14155776
+        },
+        "Encoder": {
+          "params": 3665664,
+          "macs": 3303604224
+        },
+        "Downsampling": {
+          "params": 1551360,
+          "macs": 896679936
+        },
+        "Bottleneck": {
+          "params": 1194240,
+          "macs": 273211392
+        },
+        "Decoder": {
+          "params": 6770112,
+          "macs": 7961001984
+        },
+        "Upsampling": {
+          "params": 1551360,
+          "macs": 3586277376
+        },
+        "Output head": {
+          "params": 3842,
+          "macs": 14155776
+        }
+      },
+      "blocks": [
+        {
+          "name": "mapping",
+          "stage": "Noise embedding",
+          "resolution": "1x1",
+          "channels": "96->384",
+          "params": 185088,
+          "macs": 184320,
+          "parts": {
+            "linear": 184320
+          },
+          "attention": false
+        },
+        {
+          "name": "stem",
+          "source_key": "512x512_conv",
+          "stage": "Input stem",
+          "resolution": "64x64",
+          "channels": "4->96",
+          "params": 3552,
+          "macs": 14155776,
+          "parts": {
+            "conv": 14155776
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B0",
+          "source_key": "512x512_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "96->192 (hidden=384)",
+          "params": 288576,
+          "macs": 567951360,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B1",
+          "source_key": "512x512_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 643448832,
+          "parts": {
+            "pointwise_expansion": 301989888,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B2",
+          "source_key": "512x512_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 643448832,
+          "parts": {
+            "pointwise_expansion": 301989888,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L0_B3",
+          "source_key": "512x512_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "64x64",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 643448832,
+          "parts": {
+            "pointwise_expansion": 301989888,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L1",
+          "source_key": "256x256_down",
+          "block_type": "UNetBlock",
+          "stage": "Downsampling",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 717299712,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "sigma_projection": 73728,
+            "skip_projection": 37748736
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B0",
+          "source_key": "256x256_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 160972800,
+          "parts": {
+            "pointwise_expansion": 75497472,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B1",
+          "source_key": "256x256_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 160972800,
+          "parts": {
+            "pointwise_expansion": 75497472,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B2",
+          "source_key": "256x256_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 160972800,
+          "parts": {
+            "pointwise_expansion": 75497472,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L1_B3",
+          "source_key": "256x256_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "32x32",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 160972800,
+          "parts": {
+            "pointwise_expansion": 75497472,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_down_L2",
+          "source_key": "128x128_down",
+          "block_type": "UNetBlock",
+          "stage": "Downsampling",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 179380224,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "sigma_projection": 73728,
+            "skip_projection": 9437184
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B0",
+          "source_key": "128x128_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B1",
+          "source_key": "128x128_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B2",
+          "source_key": "128x128_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "enc_L2_B3",
+          "source_key": "128x128_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Encoder",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "bottleneck_B0",
+          "source_key": "128x128_in0",
+          "block_type": "UNetBlock",
+          "stage": "Bottleneck",
+          "resolution": "16x16",
+          "channels": "192->192",
+          "params": 887232,
+          "macs": 232857600,
+          "parts": {
+            "conv0": 84934656,
+            "conv1": 84934656,
+            "sigma_projection": 73728,
+            "attention_qkv": 28311552,
+            "attention_qk_av": 25165824,
+            "attention_projection": 9437184
+          },
+          "attention": true
+        },
+        {
+          "name": "bottleneck_B1",
+          "source_key": "128x128_in1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Bottleneck",
+          "resolution": "16x16",
+          "channels": "192->192 (hidden=384)",
+          "params": 307008,
+          "macs": 40353792,
+          "parts": {
+            "pointwise_expansion": 18874368,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B0",
+          "source_key": "128x128_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B1",
+          "source_key": "128x128_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B2",
+          "source_key": "128x128_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B3",
+          "source_key": "128x128_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L2_B4",
+          "source_key": "128x128_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "16x16",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 78102528,
+          "parts": {
+            "pointwise_expansion": 37748736,
+            "depthwise_spatial": 2457600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 18874368,
+            "skip_projection": 18874368
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L1",
+          "source_key": "256x256_up",
+          "block_type": "UNetBlock",
+          "stage": "Upsampling",
+          "resolution": "32x32",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 717299712,
+          "parts": {
+            "conv0": 339738624,
+            "conv1": 339738624,
+            "sigma_projection": 73728,
+            "skip_projection": 37748736
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B0",
+          "source_key": "256x256_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B1",
+          "source_key": "256x256_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B2",
+          "source_key": "256x256_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B3",
+          "source_key": "256x256_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L1_B4",
+          "source_key": "256x256_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "32x32",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 311967744,
+          "parts": {
+            "pointwise_expansion": 150994944,
+            "depthwise_spatial": 9830400,
+            "sigma_projection": 147456,
+            "pointwise_projection": 75497472,
+            "skip_projection": 75497472
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_up_to_L0",
+          "source_key": "512x512_up",
+          "block_type": "UNetBlock",
+          "stage": "Upsampling",
+          "resolution": "64x64",
+          "channels": "192->192",
+          "params": 775680,
+          "macs": 2868977664,
+          "parts": {
+            "conv0": 1358954496,
+            "conv1": 1358954496,
+            "sigma_projection": 73728,
+            "skip_projection": 150994944
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B0",
+          "source_key": "512x512_block0",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 1247428608,
+          "parts": {
+            "pointwise_expansion": 603979776,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B1",
+          "source_key": "512x512_block1",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 1247428608,
+          "parts": {
+            "pointwise_expansion": 603979776,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B2",
+          "source_key": "512x512_block2",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 1247428608,
+          "parts": {
+            "pointwise_expansion": 603979776,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B3",
+          "source_key": "512x512_block3",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "384->192 (hidden=384)",
+          "params": 455040,
+          "macs": 1247428608,
+          "parts": {
+            "pointwise_expansion": 603979776,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888,
+            "skip_projection": 301989888
+          },
+          "attention": false
+        },
+        {
+          "name": "dec_L0_B4",
+          "source_key": "512x512_block4",
+          "block_type": "EfficientDiffusionBlock",
+          "stage": "Decoder",
+          "resolution": "64x64",
+          "channels": "288->192 (hidden=384)",
+          "params": 399552,
+          "macs": 1020936192,
+          "parts": {
+            "pointwise_expansion": 452984832,
+            "depthwise_spatial": 39321600,
+            "sigma_projection": 147456,
+            "pointwise_projection": 301989888,
+            "skip_projection": 226492416
+          },
+          "attention": false
+        },
+        {
+          "name": "head",
+          "source_key": "512x512_aux_norm/aux_conv",
+          "stage": "Output head",
+          "resolution": "64x64",
+          "channels": "192->2",
+          "params": 3842,
+          "macs": 14155776,
+          "parts": {
+            "conv": 14155776
+          },
+          "attention": false
+        }
+      ]
+    }
+  ]
+}

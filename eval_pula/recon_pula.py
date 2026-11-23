@@ -477,7 +477,7 @@ def reconstruct(system, oracle, sigmas, shifts, gamma, *, diagnose_levels=(), di
         logical_updates=len(cg_records) + len(dps_records),
         logical_nfe=len(cg_records) + len(dps_records),
         pula_convention=system.convention,
-        cg_seconds=timing["initialization_cg_seconds"] + timing["update_cg_seconds"],
+        cg_seconds=timing["initialization_cg_seconds"] + timing.get("update_cg_seconds", 0.0),
         network_forwards=network_calls,
         main_network_forwards=network_calls - diagnostic_calls - terminal_calls,
         diagnostic_network_forwards=diagnostic_calls, terminal_network_forwards=terminal_calls,

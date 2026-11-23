@@ -1,0 +1,133 @@
+{
+  "device": "cpu",
+  "torch_version": "2.15.0+cpu",
+  "shape_test": {
+    "16": [
+      1,
+      2,
+      16,
+      16
+    ],
+    "32": [
+      1,
+      2,
+      32,
+      32
+    ],
+    "64": [
+      1,
+      2,
+      64,
+      64
+    ]
+  },
+  "edm_test": {
+    "0.003": {
+      "shape": [
+        1,
+        2,
+        16,
+        16
+      ],
+      "finite": true
+    },
+    "0.1": {
+      "shape": [
+        1,
+        2,
+        16,
+        16
+      ],
+      "finite": true
+    },
+    "1.0": {
+      "shape": [
+        1,
+        2,
+        16,
+        16
+      ],
+      "finite": true
+    },
+    "10.0": {
+      "shape": [
+        1,
+        2,
+        16,
+        16
+      ],
+      "finite": true
+    }
+  },
+  "backward_test": {
+    "16": {
+      "loss": 0.8890941143035889,
+      "trainable_tensors": 442,
+      "missing_gradient_tensors": [],
+      "nonfinite_gradient_tensors": [],
+      "process_rss_delta_mib": 75.3828125
+    },
+    "32": {
+      "loss": 0.8962064981460571,
+      "trainable_tensors": 442,
+      "missing_gradient_tensors": [],
+      "nonfinite_gradient_tensors": [],
+      "process_rss_delta_mib": 154.54296875
+    },
+    "64": {
+      "loss": 0.9320743083953857,
+      "trainable_tensors": 442,
+      "missing_gradient_tensors": [],
+      "nonfinite_gradient_tensors": [],
+      "process_rss_delta_mib": 475.94921875
+    }
+  },
+  "opa_test": {
+    "input_full_image_shape": [
+      1,
+      2,
+      96,
+      96
+    ],
+    "paired_network_batch_shape": [
+      2,
+      2,
+      64,
+      64
+    ],
+    "loss_map_shape": [
+      1,
+      2,
+      64,
+      64
+    ],
+    "loss": 3.951080322265625,
+    "missing_gradient_tensors": [],
+    "nonfinite_gradient_tensors": []
+  },
+  "batched_edm_and_pickle_test": {
+    "batched_output_shape": [
+      4,
+      2,
+      64,
+      64
+    ],
+    "scalar_sigma_broadcast": true,
+    "persistent_pickle_roundtrip": true,
+    "pickle_bytes": 59947981
+  },
+  "original_songunet_regression_test": {
+    "model_type": "SongUNet",
+    "params": 30623138,
+    "output_shape": [
+      1,
+      2,
+      16,
+      16
+    ]
+  },
+  "latency_test": {
+    "status": "skipped",
+    "reason": "CUDA device unavailable"
+  }
+}
