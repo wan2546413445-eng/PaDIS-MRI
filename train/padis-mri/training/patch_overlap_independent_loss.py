@@ -40,6 +40,8 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             lambda_overlap=1.0, active_patch_size=64,
             noise_mode='independent', alignment_mode='directional',
             pair_geometry='shifted', spatial_weight_mode='distance',
+            joint_context=False,
+            global_conditioning=False,
     ):
         super().__init__(
             P_mean=P_mean,
@@ -81,13 +83,18 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         self.noise_mode = noise_mode
         self.pair_geometry = pair_geometry
         self.spatial_weight_mode = spatial_weight_mode
+        self.joint_context = bool(joint_context)
+        if self.joint_context and self.noise_mode != 'independent':
+            raise ValueError('Joint CT conditioning requires independent view noise')
+        self.global_conditioning = bool(global_conditioning)
 
         print(
             f'[OC] noise_mode={self.noise_mode}, '
             f'alignment_mode={self.alignment_mode}, '
             f'lambda={self.lambda_overlap}, '
             f'pair_geometry={self.pair_geometry}, '
-            f'spatial_weight_mode={self.spatial_weight_mode}'
+            f'spatial_weight_mode={self.spatial_weight_mode}, '
+            f'global_conditioning={self.global_conditioning}'
         )
     def __call__(
         self, net, images, patch_size, resolution,
@@ -146,24 +153,47 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
                          sigma.square() + self.sigma_data ** 2
                  ) / (sigma * self.sigma_data).square()
 
-        if self.noise_mode == 'same':
-            # Same Noise:
-            # 先在完整MRI图像上生成一次噪声
-            # 再裁剪两个重叠Patch
-            noisy_full = clean_full + sigma * torch.randn_like(clean_full)
-
-            noisy1 = _extract_patches(
-                noisy_full, top1, left1, int(patch_size)
-            )
-            noisy2 = _extract_patches(
-                noisy_full, top2, left2, int(patch_size)
-            )
-
+        if self.joint_context:
+            # Two independent full-field noises, shared clean source and sigma.
+            # Crop identical local coordinates from the corresponding field.
+            noisy_full1 = clean_full + sigma * torch.randn_like(clean_full)
+            noisy_full2 = clean_full + sigma * torch.randn_like(clean_full)
+            noisy1 = _extract_patches(noisy_full1, top1, left1, int(patch_size))
+            noisy2 = _extract_patches(noisy_full2, top2, left2, int(patch_size))
         else:
-            # Independent Noise:
-            # 保持原来的实现完全不变
-            noisy1 = clean1 + sigma * torch.randn_like(clean1)
-            noisy2 = clean2 + sigma * torch.randn_like(clean2)
+            if self.noise_mode == 'same':
+                # Same Noise:
+                # 先在完整MRI图像上生成一次噪声
+                # 再裁剪两个重叠Patch
+                noisy_full = clean_full + sigma * torch.randn_like(clean_full)
+
+                noisy1 = _extract_patches(
+                    noisy_full, top1, left1, int(patch_size)
+                )
+                noisy2 = _extract_patches(
+                    noisy_full, top2, left2, int(patch_size)
+                )
+                noisy_full1 = noisy_full
+                noisy_full2 = noisy_full
+
+            else:
+                if self.global_conditioning:
+                    # Each OPA view receives an independent full-field noise
+                    # realization.  Its local crop and global context therefore
+                    # come from the same noisy MRI while the two views remain
+                    # independent and share sigma and coordinates.
+                    noisy_full1 = clean_full + sigma * torch.randn_like(clean_full)
+                    noisy_full2 = clean_full + sigma * torch.randn_like(clean_full)
+                    noisy1 = _extract_patches(
+                        noisy_full1, top1, left1, int(patch_size)
+                    )
+                    noisy2 = _extract_patches(
+                        noisy_full2, top2, left2, int(patch_size)
+                    )
+                else:
+                    # Preserve the established baseline RNG and patch-noise path.
+                    noisy1 = clean1 + sigma * torch.randn_like(clean1)
+                    noisy2 = clean2 + sigma * torch.randn_like(clean2)
 
         noisy_pair = torch.cat([noisy1, noisy2], dim=0)
         sigma_pair = torch.cat([sigma, sigma], dim=0)
@@ -173,7 +203,29 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             if labels_pair_source is not None else None
         )
         # 将两个分支拼成一次网络前向，随后再按 pair_batch 拆开。
-        denoised_pair = net(noisy_pair, sigma_pair, x_pos=pos_pair,class_labels=labels_pair, augment_labels=None,)
+        net_kwargs = {}
+        if self.global_conditioning:
+            net_kwargs.update(
+                full_noisy=torch.cat([noisy_full1, noisy_full2], dim=0),
+                full_noisy_sigma=sigma_pair,
+                patch_coords=torch.cat([
+                    torch.stack([top1, left1], dim=1),
+                    torch.stack([top2, left2], dim=1),
+                ], dim=0),
+            )
+        if self.joint_context:
+            net_kwargs['global_context'] = torch.cat([
+                torch.nn.functional.adaptive_avg_pool2d(noisy_full1, (64, 64)),
+                torch.nn.functional.adaptive_avg_pool2d(noisy_full2, (64, 64)),
+            ], dim=0)
+        denoised_pair = net(
+            noisy_pair,
+            sigma_pair,
+            x_pos=pos_pair,
+            class_labels=labels_pair,
+            augment_labels=None,
+            **net_kwargs,
+        )
         D1 = denoised_pair[:pair_batch]
         D2 = denoised_pair[pair_batch:]
         # 两个视角都保留原始 clean-target EDM 监督，并对两者取平均。

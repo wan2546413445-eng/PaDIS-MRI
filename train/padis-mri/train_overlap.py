@@ -79,12 +79,16 @@ def parse_float_list(s):
 @click.option('--arch', help='Network architecture', metavar='ddpmpp|ncsnpp|adm',
               type=click.Choice(['ddpmpp', 'ncsnpp', 'adm']), default='ddpmpp', show_default=True)
 @click.option('--backbone', help='Denoising backbone',
-              metavar='songunet|efficient_songunet|nc_restormer|nc_restormer_v2|nc_restormer_v2_sigma',
+              metavar='songunet|glf_songunet|efficient_songunet|nc_restormer|nc_restormer_v2|nc_restormer_v2_sigma',
               type=click.Choice([
-                  'songunet', 'efficient_songunet', 'nc_restormer',
+                  'songunet', 'glf_songunet', 'efficient_songunet', 'nc_restormer',
                   'nc_restormer_v2', 'nc_restormer_v2_sigma',
               ]),
               default='songunet', show_default=True)
+@click.option('--use-global-fusion', help='Enable GLF global-local decoder fusion',
+              metavar='BOOL', type=bool, default=False, show_default=True)
+@click.option('--use-wavelet-fusion', help='Enable global-guided wavelet fusion',
+              metavar='BOOL', type=bool, default=False, show_default=True)
 @click.option('--precond', help='Preconditioning & loss function', metavar='vp|ve|edm',
               type=click.Choice(['vp', 've', 'edm', 'pedm']), default='pedm', show_default=True)
 # Hyperparameters.
@@ -152,6 +156,8 @@ def parse_float_list(s):
 @click.option('--overlap-alignment', help='Alignment for independent/same_center modes',
               type=click.Choice(['directional', 'symmetric']),
               default='directional', show_default=True)
+@click.option('--joint-ct-context', type=bool, default=False, show_default=True,
+              help='Joint noisy local patch + downsampled noisy full-field condition')
 @click.option('--lambda-overlap', help='Overlap auxiliary loss weight', type=float, default=0.01, show_default=True)
 @click.option('--min-noise-ratio', help='Minimum valid diff-mode noise ratio', type=float, default=1.25,
               show_default=True)
@@ -169,6 +175,13 @@ def main(**kwargs):
         --data=datasets/cifar10-32x32.zip --cond=1 --arch=ddpmpp
     """
     opts = dnnlib.EasyDict(kwargs)
+    if opts.joint_ct_context and (
+        opts.backbone != 'songunet' or opts.precond != 'pedm'
+        or opts.overlap_mode != 'independent'
+    ):
+        raise click.ClickException(
+            '--joint-ct-context requires --backbone=songunet '
+            '--precond=pedm --overlap-mode=independent')
     if (
         opts.overlap_geometry != 'shifted'
         or opts.overlap_spatial_weight != 'distance'
@@ -204,6 +217,14 @@ def main(**kwargs):
             '--overlap-alignment=symmetric requires --precond=pedm and '
             '--overlap-mode=independent or same_center'
         )
+    if opts.use_wavelet_fusion and not opts.use_global_fusion:
+        raise click.ClickException('--use-wavelet-fusion requires --use-global-fusion=True')
+    if opts.backbone == 'glf_songunet' and not opts.use_global_fusion:
+        raise click.ClickException('--backbone=glf_songunet requires --use-global-fusion=True')
+    if opts.backbone != 'glf_songunet' and (
+        opts.use_global_fusion or opts.use_wavelet_fusion
+    ):
+        raise click.ClickException('GLF fusion switches require --backbone=glf_songunet')
     torch.multiprocessing.set_start_method('spawn')
     dist.init()
 
@@ -243,9 +264,9 @@ def main(**kwargs):
 
     # Network architecture.
     nc_backbones = ('nc_restormer', 'nc_restormer_v2', 'nc_restormer_v2_sigma')
-    if opts.backbone in ('efficient_songunet', *nc_backbones) and opts.arch != 'ddpmpp':
+    if opts.backbone in ('glf_songunet', 'efficient_songunet', *nc_backbones) and opts.arch != 'ddpmpp':
         raise click.ClickException(f'--backbone={opts.backbone} requires --arch=ddpmpp')
-    if opts.backbone in ('efficient_songunet', *nc_backbones) and opts.precond != 'pedm':
+    if opts.backbone in ('glf_songunet', 'efficient_songunet', *nc_backbones) and opts.precond != 'pedm':
         raise click.ClickException(f'--backbone={opts.backbone} requires --precond=pedm')
     if opts.backbone in nc_backbones and (opts.cbase is not None or opts.cres is not None):
         raise click.ClickException('NC-Restormer uses its fixed dim=80 three-scale configuration; omit --cbase/--cres')
@@ -284,11 +305,21 @@ def main(**kwargs):
                     fourier_seed=2024,
                 )
         else:
-            model_type = 'EfficientSongUNet' if opts.backbone == 'efficient_songunet' else 'SongUNet'
+            if opts.backbone == 'efficient_songunet':
+                model_type = 'EfficientSongUNet'
+            elif opts.backbone == 'glf_songunet':
+                model_type = 'GLFSongUNet'
+            else:
+                model_type = 'SongUNet'
             c.network_kwargs.update(model_type=model_type, embedding_type='positional', encoder_type='standard',
                                     decoder_type='standard')
             c.network_kwargs.update(channel_mult_noise=1, resample_filter=[1, 1], model_channels=128,
                                     channel_mult=[2, 2, 2], hash_channels=c.hash_channels)
+            if opts.backbone == 'glf_songunet':
+                c.network_kwargs.update(
+                    use_global_fusion=opts.use_global_fusion,
+                    use_wavelet_fusion=opts.use_wavelet_fusion,
+                )
     elif opts.arch == 'ncsnpp':
         c.network_kwargs.update(model_type='SongUNet', embedding_type='fourier', encoder_type='residual',
                                 decoder_type='standard')
@@ -306,7 +337,8 @@ def main(**kwargs):
         c.network_kwargs.class_name = 'training.networks.VEPrecond'
         c.loss_kwargs.class_name = 'training.loss.VELoss'
     elif opts.precond == 'pedm':
-        c.network_kwargs.class_name = 'training.networks.Patch_EDMPrecond'
+        c.network_kwargs.class_name = ('training.joint_context.JointContextEDMPrecond'
+                                      if opts.joint_ct_context else 'training.networks.Patch_EDMPrecond')
         c.network_kwargs.sigma_data = 0.5
 
         if opts.overlap_mode == 'same':
@@ -344,6 +376,7 @@ def main(**kwargs):
                 alignment_mode=opts.overlap_alignment,
                 pair_geometry=opts.overlap_geometry,
                 spatial_weight_mode=opts.overlap_spatial_weight,
+                global_conditioning=(opts.backbone == 'glf_songunet'),
             )
 
         else:
@@ -353,6 +386,9 @@ def main(**kwargs):
         assert opts.precond == 'edm'
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
         c.loss_kwargs.class_name = 'training.loss.EDMLoss'
+
+    if opts.joint_ct_context:
+        c.loss_kwargs.joint_context = True
 
     # Network options.
     if opts.cbase is not None:
@@ -409,6 +445,10 @@ def main(**kwargs):
         desc += '-nc-restormer-v2'
     elif opts.backbone == 'nc_restormer_v2_sigma':
         desc += '-nc-restormer-v2-sigma'
+    elif opts.backbone == 'glf_songunet':
+        desc += '-glf-global'
+        if opts.use_wavelet_fusion:
+            desc += '-wavelet'
     lambda_tag = str(opts.lambda_overlap).replace('.', 'p')
 
     if opts.overlap_mode == 'same':
@@ -461,6 +501,10 @@ def main(**kwargs):
     dist.print0(f'Dataset path:            {c.dataset_kwargs.path}')
     dist.print0(f'Class-conditional:       {c.dataset_kwargs.use_labels}')
     dist.print0(f'Network architecture:    {opts.arch}')
+    dist.print0(f'Denoising backbone:      {opts.backbone}')
+    if opts.backbone == 'glf_songunet':
+        dist.print0(f'Global fusion:           {opts.use_global_fusion}')
+        dist.print0(f'Wavelet fusion:          {opts.use_wavelet_fusion}')
     dist.print0(f'Preconditioning & loss:  {opts.precond}')
     dist.print0(f'Overlap mode:            {opts.overlap_mode}')
     dist.print0(f'Overlap loss weight:     {opts.lambda_overlap}')

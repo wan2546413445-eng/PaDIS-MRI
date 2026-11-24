@@ -53,9 +53,15 @@ def denoisedFromPatches(net, x, t_hat, latents_pos, class_labels, indices, pad=9
     pad = int((N - np.sqrt(patches)*psize))
     #pad=512−7×64=512−448=64.
     output = torch.zeros_like(x_hat)
-    x_input = torch.zeros(patches, channels, psize, psize).to(torch.device('cuda'))
+    x_input = torch.zeros(
+        patches, channels, psize, psize,
+        device=x_hat.device, dtype=x_hat.dtype,
+    )
     #[49, 2, 64, 64]
-    pos_input = torch.zeros(patches, 2, psize, psize).to(torch.device('cuda'))
+    pos_input = torch.zeros(
+        patches, 2, psize, psize,
+        device=x_hat.device, dtype=latents_pos.dtype,
+    )
     #[49, 2, 64, 64]
     for i in range(patches):#i=0,1,…,48
         z = indices[i]#取第 i 个 patch 的坐标，如z = [10, 74, 20, 84]
@@ -67,25 +73,70 @@ def denoisedFromPatches(net, x, t_hat, latents_pos, class_labels, indices, pad=9
     # Eval-only memory saving for heavy patch networks such as MSRUNet.
     # This keeps pad=64 and psize=64 unchanged.
     # It only splits the 49 patch forward into smaller chunks.
+    # 3D CT-inspired conditional branch: SINGLE local network pass per patch.
+    # Global condition is downsampled from the SAME noisy full image.  Keep
+    # the full autograd graph for DPS likelihood backprop; no detach here.
+    joint_context = None
+    if bool(getattr(net, 'use_joint_global', False)):
+        if psize != 64 or x_hat.shape[0] != 1:
+            raise ValueError('JointContext DPS expects 64x64 patches, batch1')
+        joint_context = torch.nn.functional.adaptive_avg_pool2d(x_hat, (64,64))
+
+    def joint_call(xi, pi, ci):
+        if joint_context is None:
+            return net(xi, t_hat, pi, ci)
+        return net(xi, t_hat, pi, ci,
+                   global_context=joint_context.expand(xi.shape[0], -1, -1, -1))
+
     patch_batch = int(os.environ.get("PADIS_PATCH_BATCH", patches))
     use_ckpt = os.environ.get("PADIS_PATCH_CHECKPOINT", "0") == "1"
+    patch_coords = torch.as_tensor(
+        [[z[0], z[2]] for z in indices],
+        device=x_hat.device,
+        dtype=torch.long,
+    )
+
+    prepared_global = None
+    if bool(getattr(net, 'use_global_fusion', False)):
+        # x_hat is the same full noisy state from which all local patches were
+        # cropped.  Encode it exactly once per DPS inner loop and preserve the
+        # graph to the full noisy state for the likelihood gradient.
+        prepared_global = net.prepare_global(x_hat, t_hat)
+
+    def run_patch_batch(xi, pi, coords, ci):
+        if prepared_global is None:
+            return joint_call(xi, pi, ci)
+        return net(
+            xi,
+            t_hat,
+            x_pos=pi,
+            class_labels=ci,
+            prepared_global=prepared_global,
+            patch_coords=coords,
+            global_batch_indices=torch.zeros(
+                xi.shape[0], device=xi.device, dtype=torch.long
+            ),
+        )
 
     if patch_batch >= patches and not use_ckpt:
-        bigout = net(x_input, t_hat, pos_input, class_labels).to(torch.float64)
+        bigout = run_patch_batch(
+            x_input, pos_input, patch_coords, class_labels
+        ).to(torch.float64)
     else:
         bigout_list = []
         for start in range(0, patches, patch_batch):
             end = min(start + patch_batch, patches)
             xi = x_input[start:end]
             pi = pos_input[start:end]
+            pc = patch_coords[start:end]
             ci = None if class_labels is None else class_labels[start:end]
 
             if use_ckpt:
                 def forward_chunk(xi_, pi_):
-                    return net(xi_, t_hat, pi_, ci)
+                    return run_patch_batch(xi_, pi_, pc, ci)
                 out = checkpoint(forward_chunk, xi, pi, use_reentrant=False)
             else:
-                out = net(xi, t_hat, pi, ci)
+                out = run_patch_batch(xi, pi, pc, ci)
 
             bigout_list.append(out.to(torch.float64))
 

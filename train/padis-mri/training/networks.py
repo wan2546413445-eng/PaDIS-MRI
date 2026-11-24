@@ -735,7 +735,10 @@ class Patch_EDMPrecond(torch.nn.Module):
         self.hash_channels = hash_channels
 
         self.out_channels = img_channels if out_channels is None else out_channels
-        if model_type == 'EfficientSongUNet':
+        if model_type == 'QFSongUNet':
+            from training.quality_frequency_unet import QFSongUNet
+            model_class = QFSongUNet
+        elif model_type == 'EfficientSongUNet':
             # Lazy import avoids a circular dependency while leaving all
             # existing model names and construction paths unchanged.
             from training.efficient_unet import EfficientSongUNet
