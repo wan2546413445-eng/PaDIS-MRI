@@ -240,6 +240,79 @@ class FourierEmbedding(torch.nn.Module):
 # Equations". Equivalent to the original implementation by Song et al.,
 # available at https://github.com/yang-song/score_sde_pytorch
 
+class NonlocalGroupShrinkage(torch.nn.Module):
+    """GroupCDL-inspired nonlocal group-energy shrinkage in a shared feature space.
+
+    Source: nikopj/GroupCDL, src/networks/group.jl (GroupThreshold).
+    Adaptation: rectangular local-to-full-image graph, independent patch noise,
+    disjoint context mask, and a residual projection into the SongUNet bottleneck.
+    """
+    def __init__(self, out_channels, dim=48, stride=8):
+        super().__init__()
+        self.stride = stride
+        self.stem = torch.nn.Conv2d(2, dim, stride, stride=stride)
+        self.theta = torch.nn.Linear(dim, dim, bias=False)
+        self.phi = torch.nn.Linear(dim, dim, bias=False)
+        self.phi.load_state_dict(self.theta.state_dict())
+        self.rho = torch.nn.Linear(3, 1)
+        self.tau = torch.nn.Linear(3, dim)
+        self.proj = torch.nn.Conv2d(dim, out_channels, 1)
+        torch.nn.init.zeros_(self.rho.weight)
+        torch.nn.init.zeros_(self.rho.bias)
+        torch.nn.init.zeros_(self.tau.weight)
+        torch.nn.init.constant_(self.tau.bias, -3.0)
+        torch.nn.init.normal_(self.proj.weight, std=1e-3)
+        torch.nn.init.zeros_(self.proj.bias)
+
+    def encode(self, x):
+        # Nonoverlapping receptive fields: masking a token excludes its raw pixels.
+        h, w = x.shape[-2:]
+        s = self.stride
+        x = x[..., :h//s*s, :w//s*s]
+        return self.stem(x.to(self.stem.weight.dtype))
+
+    def forward(self, local, context, origins, noise_labels, out_hw):
+        # local and context are in the same EDM-preconditioned complex space.
+        z = self.encode(local)
+        b, d, h, w = z.shape
+        gh, gw = context.shape[-2:]
+        s = self.stride
+        q = z.flatten(2).transpose(1, 2).float()
+        v = context.flatten(2).transpose(1, 2).float()
+        # Use learned distance similarity, as in GroupCDL; no texture copying.
+        qk = self.theta(q.to(self.theta.weight.dtype)).float()
+        kk = self.phi(v.to(self.phi.weight.dtype)).float()
+        dist = (qk.square().sum(-1, keepdim=True)
+                + kk.square().sum(-1).unsqueeze(1)
+                - 2 * (qk @ kk.transpose(-1, -2))).clamp_min(0) / d
+        t = noise_labels.float().reshape(-1, 1).expand(b, 1)
+        cond = torch.cat([torch.ones_like(t), t, t.square()], dim=-1)
+        rho = torch.nn.functional.softplus(self.rho(cond.to(self.rho.weight.dtype)).float()) + 1e-4
+        logits = -dist / rho.unsqueeze(-1)
+        rows = torch.arange(gh, device=z.device).repeat_interleave(gw) * s
+        cols = torch.arange(gw, device=z.device).repeat(gh) * s
+        top, left = origins.long().unbind(-1)
+        overlap = ((rows[None] < top[:, None] + local.shape[-2])
+                   & (rows[None] + s > top[:, None])
+                   & (cols[None] < left[:, None] + local.shape[-1])
+                   & (cols[None] + s > left[:, None]))
+        valid = ~overlap
+        # Safe even when a small input has no external tokens.
+        logits = logits.masked_fill(~valid[:, None], -1e9)
+        gamma = torch.softmax(logits, dim=-1) * valid[:, None]
+        energy = torch.sqrt(gamma @ v.square() + 1e-8)
+        tau = torch.nn.functional.softplus(self.tau(cond.to(self.tau.weight.dtype)).float()).unsqueeze(1)
+        shrunk = q * torch.relu(1 - tau / (energy + 1e-8))
+        shrunk = shrunk.transpose(1, 2).reshape(b, d, h, w)
+        out = self.proj(shrunk.to(self.proj.weight.dtype))
+        return torch.nn.functional.interpolate(out, size=out_hw, mode='bilinear', align_corners=False)
+
+    def inactive(self, x):
+        # Keep DDP parameters participating on 16/32 branches without extra compute.
+        zero = sum(p.reshape(-1)[0] * 0 for p in self.parameters())
+        return x + zero.to(x.dtype)
+
+
 @persistence.persistent_class
 class SongUNet(torch.nn.Module):
     def __init__(self,
@@ -263,6 +336,7 @@ class SongUNet(torch.nn.Module):
         decoder_type        = 'standard',   # Decoder architecture: 'standard' for both DDPM++ and NCSN++.
         resample_filter     = [1,1],        # Resampling filter: [1,1] for DDPM++, [1,3,3,1] for NCSN++.
         implicit_mlp        = False,        # enable implicit coordinate encoding
+        ngs_enabled         = False,
     ):
         assert embedding_type in ['fourier', 'positional']
         assert encoder_type in ['standard', 'skip', 'residual']
@@ -270,6 +344,7 @@ class SongUNet(torch.nn.Module):
 
         super().__init__()
         self.label_dropout = label_dropout
+        self.ngs = NonlocalGroupShrinkage(model_channels * channel_mult[-1]) if ngs_enabled else None
         emb_channels = model_channels * channel_mult_emb
         noise_channels = model_channels * channel_mult_noise
         init = dict(init_mode='xavier_uniform')
@@ -345,7 +420,8 @@ class SongUNet(torch.nn.Module):
                 self.dec[f'{res}x{res}_aux_norm'] = GroupNorm(num_channels=cout, eps=1e-6)
                 self.dec[f'{res}x{res}_aux_conv'] = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
 
-    def forward(self, x, noise_labels, class_labels, augment_labels=None):
+    def forward(self, x, noise_labels, class_labels, augment_labels=None, ngs_context=None, ngs_origins=None):
+        local_input = x[:, :2]
         # Mapping.
         emb = self.map_noise(noise_labels)
         emb = emb.reshape(emb.shape[0], 2, -1).flip(1).reshape(*emb.shape) # swap sin/cos
@@ -372,6 +448,14 @@ class SongUNet(torch.nn.Module):
             else:
                 x = block(x, emb) if isinstance(block, UNetBlock) else block(x)
                 skips.append(x)
+
+        # Nonlocal group shrinkage is an auxiliary bottleneck residual.
+        ngs = getattr(self, 'ngs', None)
+        if ngs is not None:
+            if local_input.shape[-2:] == (64, 64) and ngs_context is not None:
+                x = x + ngs(local_input, ngs_context, ngs_origins, noise_labels, x.shape[-2:]).to(x.dtype)
+            else:
+                x = ngs.inactive(x)
 
         # Decoder.
         aux = None
@@ -753,6 +837,17 @@ class Patch_EDMPrecond(torch.nn.Module):
             model_class = globals()[model_type]
         self.model = model_class(img_resolution=img_resolution, in_channels=img_channels, out_channels=self.out_channels, label_dim=label_dim, **model_kwargs)
 
+    def encode_ngs_context(self, full, sigma):
+        ngs = getattr(self.model, 'ngs', None)
+        if ngs is None:
+            raise RuntimeError('NGS is disabled')
+        sigma = torch.as_tensor(sigma, device=full.device, dtype=torch.float32).reshape(-1, 1, 1, 1)
+        if full.shape[0] == 1:
+            sigma = sigma[:1]
+        if sigma.shape[0] not in (1, full.shape[0]):
+            raise ValueError('context sigma batch mismatch')
+        return ngs.encode(full.float() / (self.sigma_data ** 2 + sigma.square()).sqrt())
+
     def forward(self, x, sigma, x_pos=None, class_labels=None, force_fp32=False, **model_kwargs):
         #输入noisy patch和sigma
         x = x.to(torch.float32)
@@ -766,6 +861,9 @@ class Patch_EDMPrecond(torch.nn.Module):
         c_noise = sigma.log() / 4
         #把 noisy patch 缩放后，和位置编码拼起来，送进 U-Net
         x_in = torch.cat([c_in * x, x_pos], dim=1) if x_pos is not None else c_in * x
+        full = model_kwargs.pop('ngs_full', None)
+        if full is not None:
+            model_kwargs['ngs_context'] = self.encode_ngs_context(full, sigma)
         F_x = self.model((x_in).to(dtype), c_noise.flatten(), class_labels=class_labels, **model_kwargs)
         assert F_x.dtype == dtype
         #把 U-Net 输出 F_x 和原始 noisy patch x 混合，得到 denoised patch
