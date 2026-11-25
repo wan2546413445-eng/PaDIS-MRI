@@ -103,7 +103,14 @@ def denoisedFromPatches(net, x, t_hat, latents_pos, class_labels, indices, pad=9
         # graph to the full noisy state for the likelihood gradient.
         prepared_global = net.prepare_global(x_hat, t_hat)
 
+    # Use the same padded noisy field as the local crops and the training loss.
+    # Keep K/V in this call's graph for the DPS gradient across all chunks.
+    prepare_kv = getattr(net, 'prepare_global_kv', None)
+    global_kv = prepare_kv(x_hat, t_hat) if prepare_kv is not None else None
+
     def run_patch_batch(xi, pi, coords, ci):
+        if global_kv is not None:
+            return net(xi, t_hat, x_pos=pi, class_labels=ci, global_kv=global_kv)
         if prepared_global is None:
             return joint_call(xi, pi, ci)
         return net(
@@ -132,9 +139,7 @@ def denoisedFromPatches(net, x, t_hat, latents_pos, class_labels, indices, pad=9
             ci = None if class_labels is None else class_labels[start:end]
 
             if use_ckpt:
-                def forward_chunk(xi_, pi_):
-                    return run_patch_batch(xi_, pi_, pc, ci)
-                out = checkpoint(forward_chunk, xi, pi, use_reentrant=False)
+                out = checkpoint(run_patch_batch, xi, pi, pc, ci, use_reentrant=False)
             else:
                 out = run_patch_batch(xi, pi, pc, ci)
 

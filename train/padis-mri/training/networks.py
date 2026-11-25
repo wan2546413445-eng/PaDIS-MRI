@@ -263,6 +263,7 @@ class SongUNet(torch.nn.Module):
         decoder_type        = 'standard',   # Decoder architecture: 'standard' for both DDPM++ and NCSN++.
         resample_filter     = [1,1],        # Resampling filter: [1,1] for DDPM++, [1,3,3,1] for NCSN++.
         implicit_mlp        = False,        # enable implicit coordinate encoding
+        use_global_cross_attention = False,
     ):
         assert embedding_type in ['fourier', 'positional']
         assert encoder_type in ['standard', 'skip', 'residual']
@@ -345,7 +346,13 @@ class SongUNet(torch.nn.Module):
                 self.dec[f'{res}x{res}_aux_norm'] = GroupNorm(num_channels=cout, eps=1e-6)
                 self.dec[f'{res}x{res}_aux_conv'] = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
 
-    def forward(self, x, noise_labels, class_labels, augment_labels=None):
+        if use_global_cross_attention:
+            self.global_cross_attn = GlobalCrossAttention()
+
+    def forward(self, x, noise_labels, class_labels, augment_labels=None, global_kv=None):
+        if global_kv is not None and not hasattr(self, 'global_cross_attn'):
+            raise ValueError('Passing global_kv requires use_global_cross_attention=True.')
+
         # Mapping.
         emb = self.map_noise(noise_labels)
         emb = emb.reshape(emb.shape[0], 2, -1).flip(1).reshape(*emb.shape) # swap sin/cos
@@ -388,6 +395,8 @@ class SongUNet(torch.nn.Module):
                 if x.shape[1] != block.in_channels:
                     x = torch.cat([x, skips.pop()], dim=1)
                 x = block(x, emb)
+                if global_kv is not None and name.endswith('_in0'):
+                    x = self.global_cross_attn(x, global_kv)
         return aux
 
 #----------------------------------------------------------------------------
@@ -779,3 +788,61 @@ class Patch_EDMPrecond(torch.nn.Module):
         return torch.as_tensor(sigma)
 
 #----------------------------------------------------------------------------
+# Spatial features of a full noisy complex MRI, sampled at stride 16.
+
+@persistence.persistent_class
+class GlobalEncoder(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        init = dict(init_mode='xavier_uniform')
+        self.input_conv = Conv2d(in_channels=2, out_channels=128, kernel=3, **init)
+        self.down = torch.nn.ModuleList([
+            Conv2d(in_channels=128, out_channels=128, kernel=3, down=True, **init)
+            for _ in range(4)
+        ])
+
+    def forward(self, x_full):
+        x = silu(self.input_conv(x_full))
+        for layer in self.down:
+            x = silu(layer(x))
+        return x
+
+#----------------------------------------------------------------------------
+# Patch bottleneck queries over all spatial positions of a full MRI view.
+
+@persistence.persistent_class
+class GlobalCrossAttention(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        init = dict(init_mode='xavier_uniform')
+        self.q_proj = Linear(256, 256, **init)
+        self.k_proj = Linear(128, 256, **init)
+        self.v_proj = Linear(128, 256, **init)
+        self.out_proj = Linear(256, 256, init_weight=0, init_bias=0, **init)
+
+    def prepare_kv(self, global_features):
+        """Return K and V, each [views, 4, H_g * W_g, 64], in row-major order."""
+        batch, channels, height, width = global_features.shape
+        device = global_features.device
+        freq = 10000 ** (-torch.arange(0, channels // 2, 2, device=device,
+                                       dtype=torch.float32) / (channels // 2))
+        y = torch.arange(height, device=device)[:, None] * freq
+        x = torch.arange(width, device=device)[:, None] * freq
+        pos_y = torch.cat([y.sin(), y.cos()], dim=-1)[:, None].expand(-1, width, -1)
+        pos_x = torch.cat([x.sin(), x.cos()], dim=-1)[None, :].expand(height, -1, -1)
+        pos = torch.cat([pos_y, pos_x], dim=-1).to(global_features.dtype)
+        tokens = (global_features.permute(0, 2, 3, 1) + pos).reshape(batch, height * width, channels)
+        k = self.k_proj(tokens).reshape(batch, height * width, 4, 64).transpose(1, 2)
+        v = self.v_proj(tokens).reshape(batch, height * width, 4, 64).transpose(1, 2)
+        return k, v
+
+    def forward(self, patch_features, kv):
+        """Use paired views or broadcast one view across the patch batch."""
+        batch, channels, height, width = patch_features.shape
+        k, v = kv
+        tokens = patch_features.flatten(2).transpose(1, 2)
+        q = self.q_proj(tokens).reshape(batch, height * width, 4, 64).transpose(1, 2)
+        attended = torch.nn.functional.scaled_dot_product_attention(q, k, v, dropout_p=0.0)
+        attended = attended.transpose(1, 2).reshape(batch, height * width, channels)
+        update = self.out_proj(attended).transpose(1, 2).reshape_as(patch_features)
+        return patch_features + update

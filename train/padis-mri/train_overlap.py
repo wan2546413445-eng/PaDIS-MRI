@@ -156,6 +156,7 @@ def parse_float_list(s):
 @click.option('--overlap-alignment', help='Alignment for independent/same_center modes',
               type=click.Choice(['directional', 'symmetric']),
               default='directional', show_default=True)
+@click.option('--global-cross-attention', is_flag=True, help='Condition OPA patches on full-image K/V at the SongUNet bottleneck')
 @click.option('--joint-ct-context', type=bool, default=False, show_default=True,
               help='Joint noisy local patch + downsampled noisy full-field condition')
 @click.option('--lambda-overlap', help='Overlap auxiliary loss weight', type=float, default=0.01, show_default=True)
@@ -175,6 +176,13 @@ def main(**kwargs):
         --data=datasets/cifar10-32x32.zip --cond=1 --arch=ddpmpp
     """
     opts = dnnlib.EasyDict(kwargs)
+    if opts.global_cross_attention:
+        if opts.joint_ct_context or opts.backbone != 'songunet' or opts.arch != 'ddpmpp' or opts.precond != 'pedm':
+            raise click.ClickException('--global-cross-attention requires ddpmpp/songunet/pedm with --joint-ct-context=False')
+        if opts.overlap_mode not in ('independent', 'same_center') or opts.augment:
+            raise click.ClickException('--global-cross-attention requires an independent or same_center loss and --augment=0')
+        if opts.cbase not in (None, 128) or opts.cres not in (None, [2, 2, 2]):
+            raise click.ClickException('--global-cross-attention requires --cbase=128 and --cres=2,2,2')
     if opts.joint_ct_context and (
         opts.backbone != 'songunet' or opts.precond != 'pedm'
         or opts.overlap_mode != 'independent'
@@ -339,6 +347,8 @@ def main(**kwargs):
     elif opts.precond == 'pedm':
         c.network_kwargs.class_name = ('training.joint_context.JointContextEDMPrecond'
                                       if opts.joint_ct_context else 'training.networks.Patch_EDMPrecond')
+        if opts.global_cross_attention:
+            c.network_kwargs.class_name = 'training.joint_context.GlobalContextEDMPrecond'
         c.network_kwargs.sigma_data = 0.5
 
         if opts.overlap_mode == 'same':
@@ -362,7 +372,7 @@ def main(**kwargs):
             # 当前几何引导 OC：只改变重叠区域的噪声相关性，保留双 GT 和 OC 公式。
             # independent: 两个 patch 各自加入独立高斯噪声。
             # same_center: 先对整图加一份噪声，再裁剪两个重叠 patch。
-            # 16x16、32x32 尺度继续回退到原始 Patch_EDMLoss。
+            # 16、32 使用单视图 EDM，64 使用配对 OPA。
             noise_mode = 'same' if opts.overlap_mode == 'same_center' else 'independent'
             c.loss_kwargs.class_name = (
                 'training.patch_overlap_independent_loss.'
@@ -451,6 +461,8 @@ def main(**kwargs):
             desc += '-wavelet'
     lambda_tag = str(opts.lambda_overlap).replace('.', 'p')
 
+    if opts.global_cross_attention:
+        desc += '-global-cross-attn'
     if opts.overlap_mode == 'same':
         desc += f'-overlap-same-lam{lambda_tag}'
 
@@ -541,3 +553,4 @@ if __name__ == "__main__":
     main()
 
 # ----------------------------------------------------------------------------
+

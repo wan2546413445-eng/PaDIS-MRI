@@ -10,7 +10,7 @@
 
 alignment_mode='directional' 保留内部引导边界；'symmetric' 对两侧施加辅助梯度。
 仅在 active_patch_size（默认 64）上启用上述配对训练。
-16×16 和 32×32 分支保持作者原始 Patch_EDMLoss 不变。
+16×16 和 32×32 使用单视图 EDM；全图交叉注意力模型在三个尺度均接收对应视图的 K/V。
 """
 
 import os
@@ -100,8 +100,27 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         self, net, images, patch_size, resolution,
         labels=None, augment_pipe=None,
     ):
-        # 16×16 和 32×32 分支完全沿用作者原始 Patch_EDMLoss。
+        model = getattr(net, 'module', net)
+        prepare_kv = getattr(model, 'prepare_global_kv', None)
+        if prepare_kv is not None:
+            if self.joint_context or self.global_conditioning:
+                raise ValueError('Global K/V requires both legacy context modes to be disabled')
+            if augment_pipe is not None:
+                raise ValueError('Full-view K/V training requires --augment=0')
+
         if int(patch_size) != self.active_patch_size:
+            if prepare_kv is not None:
+                sigma = (torch.randn([images.shape[0], 1, 1, 1], device=images.device)
+                         * self.P_std + self.P_mean).exp()
+                noisy_full = images + sigma * torch.randn_like(images)
+                # Crop target and input together so their coordinates always match.
+                paired, pos = self.pachify(torch.cat((images, noisy_full), dim=1), patch_size)
+                clean, noisy = paired.chunk(2, dim=1)
+                kv = prepare_kv(noisy_full, sigma)
+                pred = net(noisy, sigma, x_pos=pos, class_labels=labels,
+                           augment_labels=None, global_kv=kv)
+                weight = (sigma.square() + self.sigma_data ** 2) / (sigma * self.sigma_data).square()
+                return weight * (pred - clean).square()
             return super().__call__(
                 net=net, images=images, patch_size=patch_size,
                 resolution=resolution, labels=labels,
@@ -177,7 +196,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
                 noisy_full2 = noisy_full
 
             else:
-                if self.global_conditioning:
+                if self.global_conditioning or prepare_kv is not None:
                     # Each OPA view receives an independent full-field noise
                     # realization.  Its local crop and global context therefore
                     # come from the same noisy MRI while the two views remain
@@ -204,6 +223,8 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         )
         # 将两个分支拼成一次网络前向，随后再按 pair_batch 拆开。
         net_kwargs = {}
+        if prepare_kv is not None:
+            net_kwargs['global_kv'] = prepare_kv(torch.cat([noisy_full1, noisy_full2]), sigma_pair)
         if self.global_conditioning:
             net_kwargs.update(
                 full_noisy=torch.cat([noisy_full1, noisy_full2], dim=0),
@@ -319,3 +340,4 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         )
 
         return edm_loss + weighted_auxiliary
+

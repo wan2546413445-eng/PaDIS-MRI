@@ -14,6 +14,13 @@ GPU=${GPU:-0}
 VARIANT=${VARIANT:-center}
 MODE=${1:-debug}
 NPROC=1
+GLOBAL_CROSS_ATTENTION=${GLOBAL_CROSS_ATTENTION:-0}
+CONTEXT_ARGS=()
+case "$GLOBAL_CROSS_ATTENTION" in
+    0) ;;
+    1) CONTEXT_ARGS=(--global-cross-attention) ;;
+    *) echo "GLOBAL_CROSS_ATTENTION must be 0 or 1"; exit 1 ;;
+esac
 
 CODE_ROOT=${CODE_ROOT:-/mnt/SSD/wsy/projects/PaDIS-MRI-main}
 RESULT_ROOT=${RESULT_ROOT:-/mnt/SSD2/wsy/PaDIS-MRI}
@@ -90,6 +97,10 @@ case "$MODE" in
         PATCH_TAG=s16s32s64_p020305
         ;;
     resume15k)
+        if [[ "$GLOBAL_CROSS_ATTENTION" == 1 && -z "$RESUME_PATH" ]]; then
+            echo "Set RESUME_PATH to the global cross-attention training state for this run."
+            exit 1
+        fi
 
         DURATION=15.12
         TICK=5
@@ -132,6 +143,10 @@ if [[ "$OC_PAIR_GEOMETRY" != shifted || "$OC_SPATIAL_WEIGHT_MODE" != distance ]]
     EXP_NAME=${EXP_NAME}_geom${OC_PAIR_GEOMETRY}_spatial${OC_SPATIAL_WEIGHT_MODE}
 fi
 
+if [[ "$GLOBAL_CROSS_ATTENTION" == 1 ]]; then
+    EXP_NAME=${EXP_NAME}_global_cross_attn
+fi
+
 RUN_NAME=${MODE}_${EXP_NAME}
 
 OUTDIR=$ROOT_OUTDIR/$ANATOMY/$SNR/$RUN_NAME
@@ -147,6 +162,7 @@ cd "$CODE_ROOT"
     echo "=================================================="
     echo "PaDIS-MRI Independent-Noise Center-Guided Overlap Training"
     echo "MODE=$MODE"
+    echo "GLOBAL_CROSS_ATTENTION=$GLOBAL_CROSS_ATTENTION"
     echo "VARIANT=$VARIANT"
     echo "GPU=$GPU"
     echo "LAMBDA_OVERLAP=$LAMBDA_OVERLAP"
@@ -203,5 +219,6 @@ CUDA_VISIBLE_DEVICES=$GPU torchrun \
     --dump="$DUMP" \
     --workers="$WORKERS" \
     --seed="$SEED" \
+    "${CONTEXT_ARGS[@]}" \
     "${RESUME_ARGS[@]}" \
     2>&1 | tee -a "$LOG_FILE"
