@@ -10,7 +10,7 @@
 
 alignment_mode='directional' 保留内部引导边界；'symmetric' 对两侧施加辅助梯度。
 仅在 active_patch_size（默认 64）上启用上述配对训练。
-16×16 和 32×32 使用单视图 EDM；全图交叉注意力模型在三个尺度均接收对应视图的 K/V。
+16×16 和 32×32 分支保持作者原始 Patch_EDMLoss 不变。
 """
 
 import os
@@ -41,7 +41,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             noise_mode='independent', alignment_mode='directional',
             pair_geometry='shifted', spatial_weight_mode='distance',
             joint_context=False,
-            global_conditioning=False,
+            global_conditioning=False, legacy_global_context=False, legacy_context_kwargs=None,
     ):
         super().__init__(
             P_mean=P_mean,
@@ -86,6 +86,13 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         self.joint_context = bool(joint_context)
         if self.joint_context and self.noise_mode != 'independent':
             raise ValueError('Joint CT conditioning requires independent view noise')
+        self.legacy_context_loss = None
+        if legacy_global_context:
+            from training.patch_loss_globalcond import GlobalContextPatch_EDMLoss
+            if joint_context or global_conditioning:
+                raise ValueError("Select one global conditioning mode")
+            self.legacy_context_loss = GlobalContextPatch_EDMLoss(
+                P_mean=P_mean, P_std=P_std, sigma_data=sigma_data, **(legacy_context_kwargs or {}))
         self.global_conditioning = bool(global_conditioning)
 
         print(
@@ -100,27 +107,11 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         self, net, images, patch_size, resolution,
         labels=None, augment_pipe=None,
     ):
-        model = getattr(net, 'module', net)
-        prepare_kv = getattr(model, 'prepare_global_kv', None)
-        if prepare_kv is not None:
-            if self.joint_context or self.global_conditioning:
-                raise ValueError('Global K/V requires both legacy context modes to be disabled')
-            if augment_pipe is not None:
-                raise ValueError('Full-view K/V training requires --augment=0')
-
+        # 16×16 和 32×32 分支完全沿用作者原始 Patch_EDMLoss。
+        legacy = getattr(self, 'legacy_context_loss', None)
         if int(patch_size) != self.active_patch_size:
-            if prepare_kv is not None:
-                sigma = (torch.randn([images.shape[0], 1, 1, 1], device=images.device)
-                         * self.P_std + self.P_mean).exp()
-                noisy_full = images + sigma * torch.randn_like(images)
-                # Crop target and input together so their coordinates always match.
-                paired, pos = self.pachify(torch.cat((images, noisy_full), dim=1), patch_size)
-                clean, noisy = paired.chunk(2, dim=1)
-                kv = prepare_kv(noisy_full, sigma)
-                pred = net(noisy, sigma, x_pos=pos, class_labels=labels,
-                           augment_labels=None, global_kv=kv)
-                weight = (sigma.square() + self.sigma_data ** 2) / (sigma * self.sigma_data).square()
-                return weight * (pred - clean).square()
+            if legacy is not None:
+                return legacy(net, images, patch_size, resolution, labels, augment_pipe)
             return super().__call__(
                 net=net, images=images, patch_size=patch_size,
                 resolution=resolution, labels=labels,
@@ -155,6 +146,8 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         clean1 = _extract_patches(clean_full, top1, left1, int(patch_size))
         clean2 = _extract_patches(clean_full, top2, left2, int(patch_size))
 
+        if legacy is not None:
+            resolution = clean_full.shape[2]  # Historical coordinates use padded image height.
         pos1 = _position_maps(top1, left1, pair_batch, int(patch_size), resolution, images.device)
         pos2 = _position_maps(top2, left2, pair_batch, int(patch_size), resolution, images.device)
 
@@ -196,7 +189,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
                 noisy_full2 = noisy_full
 
             else:
-                if self.global_conditioning or prepare_kv is not None:
+                if self.global_conditioning or legacy is not None:
                     # Each OPA view receives an independent full-field noise
                     # realization.  Its local crop and global context therefore
                     # come from the same noisy MRI while the two views remain
@@ -223,8 +216,6 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         )
         # 将两个分支拼成一次网络前向，随后再按 pair_batch 拆开。
         net_kwargs = {}
-        if prepare_kv is not None:
-            net_kwargs['global_kv'] = prepare_kv(torch.cat([noisy_full1, noisy_full2]), sigma_pair)
         if self.global_conditioning:
             net_kwargs.update(
                 full_noisy=torch.cat([noisy_full1, noisy_full2], dim=0),
@@ -234,6 +225,14 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
                     torch.stack([top2, left2], dim=1),
                 ], dim=0),
             )
+        if legacy is not None:
+            aligned = []
+            for full, top, left in ((noisy_full1, top1, left1), (noisy_full2, top2, left2)):
+                context = legacy._build_global_context(clean_full, full, sigma)
+                if context is not None:
+                    aligned.append(_extract_patches(context, top, left, int(patch_size)))
+            if aligned:
+                pos_pair = torch.cat([pos_pair, torch.cat(aligned)], dim=1)
         if self.joint_context:
             net_kwargs['global_context'] = torch.cat([
                 torch.nn.functional.adaptive_avg_pool2d(noisy_full1, (64, 64)),
@@ -340,4 +339,3 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
         )
 
         return edm_loss + weighted_auxiliary
-
