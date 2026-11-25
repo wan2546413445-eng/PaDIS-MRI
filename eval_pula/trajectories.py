@@ -48,10 +48,26 @@ class TrajectorySystems:
             pairs = [system.initialization_rhs(sigma) for system in self.systems]
             return tuple(torch.cat(column) for column in zip(*pairs))
 
-    def update_rhs(self, state, score, sigma, gamma):
+    def update_rhs(self, state, score, sigma, gamma,
+                   clean_likelihood=None, guide_weight=1.0,
+                   guide_mix="replace", cached_likelihood=None):
         with synchronized_stage(self.y.device, self.stages, "rhs_and_cg_seconds"):
-            pairs = [system.update_rhs(state[j:j+1], score[j:j+1], sigma, gamma)
-                     for j, system in enumerate(self.systems)]
+            pairs = [
+                system.update_rhs(
+                    state[j:j+1], score[j:j+1], sigma, gamma,
+                    clean_likelihood=(
+                        None if clean_likelihood is None
+                        else clean_likelihood[j:j+1]
+                    ),
+                    guide_weight=guide_weight,
+                    guide_mix=guide_mix,
+                    cached_likelihood=(
+                        None if cached_likelihood is None
+                        else cached_likelihood[j:j+1]
+                    ),
+                )
+                for j, system in enumerate(self.systems)
+            ]
             return tuple(torch.cat(column) for column in zip(*pairs))
 
     def solve(self, rhs, initial, sigma):
