@@ -186,6 +186,10 @@ def post_eval_normalize(
     results: Dict = {"per_image": {}}
     epsilon = 1e-9
 
+    from paired_recon_views import foreground_results, save_views
+    foreground_dir = plot_dir.with_name(plot_dir.name + "_espirit")
+    foreground = foreground_results(recon_dir, val_dir, foreground_dir, mask_select, json_path.name)
+
     for rf in recon_files:
         m = re.fullmatch(regex, rf.name)
         if not m:
@@ -234,25 +238,8 @@ def post_eval_normalize(
 
         results["per_image"][str(sample_idx)] = {"psnr": m_psnr, "ssim": m_ssim, "nrmse": m_nrmse}
 
-        us_ksp = fs_ksp * mask
-        mri_op = MRI_utils(mask=mask, maps=s_maps)
-        adjoint = mri_op.adjoint(us_ksp)
-        adj2 = (torch.abs(adjoint) / (norm_val + epsilon)).squeeze().detach().cpu().numpy()
-
-        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        vmax = np.percentile(gt2, 99.5) if np.isfinite(gt2).all() else gt2.max()
-
-        axes[0].imshow(adj2, cmap='gray', vmax=vmax);  axes[0].set_title('Adjoint (Zero-Filled)'); axes[0].axis('off')
-        axes[1].imshow(rc2,  cmap='gray', vmax=vmax);  axes[1].set_title('Reconstruction');        axes[1].axis('off')
-        axes[2].imshow(gt2,  cmap='gray', vmax=vmax);  axes[2].set_title('Ground Truth');          axes[2].axis('off')
-
-        fig.suptitle(
-            f"Sample {sample_idx} | NRMSE: {m_nrmse:.4f}, PSNR: {m_psnr:.2f} dB, SSIM: {m_ssim:.4f}",
-            fontsize=16
-        )
-        plt.tight_layout()
-        fig.savefig(plot_dir / f"comparison_sample_{sample_idx}.png")
-        plt.close(fig)
+        save_views(rc2, gt2, sample_idx, results["per_image"][str(sample_idx)],
+                   plot_dir, foreground_dir, foreground)
 
     all_psnr = [v['psnr'] for v in results['per_image'].values()]
     all_ssim = [v['ssim'] for v in results['per_image'].values()]

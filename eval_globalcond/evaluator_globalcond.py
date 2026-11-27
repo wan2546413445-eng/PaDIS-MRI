@@ -40,9 +40,10 @@ torch.set_printoptions(profile="full")
 
 
 class DPSHyperEvaluator(BaseDPSHyperEvaluator):
-    def __init__(self, *args, global_context_size=96, **kwargs):
+    def __init__(self, *args, global_context_size=96, sigma_max=10.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.global_context_size = int(global_context_size)
+        self.sigma_max = float(sigma_max)
 
     def dps2_wrapper(
         self,
@@ -82,5 +83,6 @@ class DPSHyperEvaluator(BaseDPSHyperEvaluator):
             save_intermediate=save_intermediate,
             intermediate_every=intermediate_every,
             global_context_size=self.global_context_size,
+            sigma_max=self.sigma_max,
         )
         return recon, a, b, c, d, e, f

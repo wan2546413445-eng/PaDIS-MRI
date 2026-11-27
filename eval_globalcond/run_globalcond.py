@@ -39,6 +39,7 @@ def parse_args():
     p.add_argument("--report_every", type=int, default=1)
 
     p.add_argument("--global_context_size", type=int, default=96)
+    p.add_argument("--sigma_max", type=float, default=10.0)
 
     p.add_argument("--run_evaluate", action="store_true")
     p.add_argument("--save_intermediate", action="store_true")
@@ -77,6 +78,7 @@ def main():
         seed=args.seed,
         sample_indices=sample_indices if sample_indices else None,
         global_context_size=args.global_context_size,
+        sigma_max=args.sigma_max,
     )
 
     print(

@@ -78,6 +78,7 @@ def training_loop(
     hash_channels = 1,              # Always keep as 1
     patch_list=None,
     patch_probs=None,
+    foreground_cache=None,
 ):
     start_time = time.time()
     np.random.seed((seed * dist.get_world_size() + dist.get_rank()) % (1 << 31))
@@ -116,7 +117,14 @@ def training_loop(
     imsize = int(_tmp['x_est_gt'].shape[-1])
     del _tmp
 
-    dataset_obj = ImageFolderDatasetX(mypath, imsize + 2*pad_width, pad=pad_width, channels=2, imsize=imsize)
+    dataset_class = ImageFolderDatasetX
+    if foreground_cache is not None:
+        from training.opa_pfw_loss import IndexedDataset, load_integral
+        dataset_class = IndexedDataset
+    dataset_obj = dataset_class(mypath, imsize + 2*pad_width, pad=pad_width, channels=2, imsize=imsize)
+
+    if foreground_cache is not None:
+        integral = load_integral(foreground_cache, dataset_obj)
 
     dataset_sampler = misc.InfiniteSampler(dataset=dataset_obj, rank=dist.get_rank(), num_replicas=dist.get_world_size(), seed=seed)
     dataset_iterator = iter(torch.utils.data.DataLoader(dataset=dataset_obj, sampler=dataset_sampler, batch_size=batch_gpu, **data_loader_kwargs))
@@ -252,10 +260,19 @@ def training_loop(
 
                 batch_mul = batch_mul_dict[patch_size] #// batch_mul_dict[img_resolution]
                 images, labels = [], []
+                pfw_args = {}
+                if foreground_cache is not None:
+                    raw_ids, flips = [], []
                 for _ in range(batch_mul):
-                    images_, labels_ = next(dataset_iterator)
+                    batch = next(dataset_iterator)
+                    images_, labels_ = batch[:2]
+                    if foreground_cache is not None:
+                        raw_ids.append(batch[2])
+                        flips.append(batch[3])
                     images.append(images_), labels.append(labels_)
                 images, labels = torch.cat(images, dim=0), torch.cat(labels, dim=0)
+                if foreground_cache is not None:
+                    pfw_args = dict(integral=integral, raw_idx=torch.cat(raw_ids), flipped=torch.cat(flips))
                 del images_, labels_
                 images = images.to(device).to(torch.float32)
 
@@ -269,7 +286,7 @@ def training_loop(
                 #added for full-image support
                 if isinstance(loss_fn, Patch_EDMLoss):
                     loss = loss_fn(net=ddp, images=images, patch_size=patch_size, resolution=img_resolution,
-                               labels=labels, augment_pipe=augment_pipe)
+                               labels=labels, augment_pipe=augment_pipe, **pfw_args)
                 else:
                     loss = loss_fn(net=ddp, images=images, labels=labels, augment_pipe=augment_pipe)
 
@@ -373,6 +390,9 @@ def training_loop(
         # Update logs.
         training_stats.default_collector.update()
         if dist.get_rank() == 0:
+            if foreground_cache is not None:
+                stats = training_stats.default_collector.as_dict()
+                print(" ".join(f"{k}={v['mean']:.5f}" for k, v in stats.items() if k.startswith("PFW/")))
             if stats_jsonl is None:
                 stats_jsonl = open(os.path.join(run_dir, 'stats.jsonl'), 'at')
             stats_jsonl.write(json.dumps(dict(training_stats.default_collector.as_dict(), timestamp=time.time())) + '\n')

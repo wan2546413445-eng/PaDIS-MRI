@@ -397,6 +397,11 @@ def main(**kwargs):
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
         c.loss_kwargs.class_name = 'training.loss.EDMLoss'
 
+    if opts.get('pfw_cache') is not None:
+        c.foreground_cache = opts.pfw_cache
+        c.loss_kwargs = dnnlib.EasyDict(class_name='training.opa_pfw_loss.OPAPFWLoss',
+                                        lambda_overlap=opts.lambda_overlap, w_max=opts.pfw_w_max,
+                                        P_mean=-1.2, P_std=1.2, sigma_data=0.5)
     if opts.joint_ct_context:
         c.loss_kwargs.joint_context = True
 
@@ -522,9 +527,9 @@ def main(**kwargs):
     dist.print0(f'Overlap loss weight:     {opts.lambda_overlap}')
     if opts.overlap_mode in ('independent', 'same_center'):
         dist.print0('Active overlap patch:    64')
-        dist.print0(f'OC noise correlation:    {c.loss_kwargs.noise_mode}')
-        dist.print0(f'OC pair geometry:        {c.loss_kwargs.pair_geometry}')
-        dist.print0(f'OC spatial weight:       {c.loss_kwargs.spatial_weight_mode}')
+        dist.print0(f"OC noise correlation:    {c.loss_kwargs.get('noise_mode', opts.overlap_mode)}")
+        dist.print0(f"OC pair geometry:        {c.loss_kwargs.get('pair_geometry', opts.overlap_geometry)}")
+        dist.print0(f"OC spatial weight:       {c.loss_kwargs.get('spatial_weight_mode', opts.overlap_spatial_weight)}")
     dist.print0(f'Number of GPUs:          {dist.get_world_size()}')
     dist.print0(f'Batch size:              {c.batch_size}')
     dist.print0(f'Mixed-precision:         {c.network_kwargs.use_fp16}')
@@ -553,4 +558,3 @@ if __name__ == "__main__":
     main()
 
 # ----------------------------------------------------------------------------
-
