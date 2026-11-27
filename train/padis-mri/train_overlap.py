@@ -165,6 +165,8 @@ def parse_float_list(s):
 @click.option('--max-noise-ratio', help='Maximum valid diff-mode noise ratio', type=float, default=3.0,
               show_default=True)
 @click.option('-n', '--dry-run', help='Print training options and exit', is_flag=True)
+@click.option('--wdr', is_flag=True)
+@click.option('--stage-depths', type=parse_int_list, default=None)
 def main(**kwargs):
     """Train diffusion-based generative model using the techniques described in the
     paper "Elucidating the Design Space of Diffusion-Based Generative Models".
@@ -418,6 +420,11 @@ def main(**kwargs):
         # c.network_kwargs.augment_dim = 6
     if opts.implicit_mlp:
         c.network_kwargs.implicit_mlp = True
+    if opts.wdr or opts.stage_depths:
+        if c.network_kwargs.model_type != 'SongUNet':
+            raise click.UsageError('WDR and stage depths require SongUNet')
+        c.network_kwargs.num_blocks = opts.stage_depths or [3, 4, 4]
+        c.network_kwargs.wdr = opts.wdr
     c.network_kwargs.update(dropout=opts.dropout, use_fp16=opts.fp16)
 
     # Training options.

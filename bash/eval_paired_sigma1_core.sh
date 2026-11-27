@@ -21,7 +21,7 @@ read -r -a masks <<< "${MASKS:-4}"
 IFS=, read -r -a indices <<< "$samples"
 export CUDA_VISIBLE_DEVICES="$GPU" MPLBACKEND=Agg
 export PYTHONPATH="$PWD:$PWD/train/padis-mri:$PWD/eval${PYTHONPATH:+:$PYTHONPATH}"
-export PADIS_PATCH_BATCH=49 PADIS_PATCH_CHECKPOINT=0
+export PADIS_PATCH_BATCH=${PADIS_PATCH_BATCH:-49} PADIS_PATCH_CHECKPOINT=0
 unset NOISE_DIR NOISE_COVARIANCE NOISE_COMPLEX_VAR
 [[ -r "$model" ]] || { printf '找不到权重：%s\n' "$model" >&2; exit 1; }
 printf 'GPU %s | %s | pure DPS %s×%s | %s updates | sigma 1 -> 0.003\nCheckpoint: %s\nOutput: %s\n' "$GPU" "$model_label" "$steps" "$inner" "$((steps*inner))" "$model" "$root"
@@ -69,7 +69,13 @@ requested = dict(model_path=arg('--model_path'), val_dir=arg('--val_dir'),
                  sigma_max=1.0, sigma_min=.003, rho=7.0, seed=123,
                  gpu=os.environ['CUDA_VISIBLE_DEVICES'])
 (Path(arg('--save_dir')) / 'requested_config.json').write_text(json.dumps(requested, indent=2))
+if os.getenv('WDR_PROFILE'):
+    import torch
+    torch.cuda.reset_peak_memory_stats()
 runpy.run_path('eval_fast/run.py', run_name='__main__')
+if os.getenv('WDR_PROFILE'):
+    print('DPS peak allocated GiB', torch.cuda.max_memory_allocated()/2**30,
+          'patch batch limit', os.environ['PADIS_PATCH_BATCH'], flush=True)
 expected = int(sys.argv[sys.argv.index('--steps') + 1])
 assert len(actual) == 1 and len(actual[0]) == expected
 assert abs(actual[0][0] - 1.0) < 1e-6 and abs(actual[0][-1] - .003) < 1e-6

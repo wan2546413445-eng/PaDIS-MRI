@@ -143,6 +143,20 @@ class AttentionOp(torch.autograd.Function):
 # Represents the union of all features employed by the DDPM++, NCSN++, and
 # ADM architectures.
 
+def haar_split(x):
+    a, b = x[..., ::2, ::2], x[..., ::2, 1::2]
+    c, d = x[..., 1::2, ::2], x[..., 1::2, 1::2]
+    ll = (a + b + c + d) * 0.5
+    high = torch.cat(((a-b+c-d)*0.5, (a+b-c-d)*0.5, (a-b-c+d)*0.5), dim=1)
+    return ll, high
+
+
+def haar_merge(ll, high):
+    h, v, d = high.chunk(3, dim=1)
+    phases = torch.stack((ll+h+v+d, ll-h+v-d, ll+h-v-d, ll-h-v+d), dim=2)
+    return torch.nn.functional.pixel_shuffle(phases.flatten(1, 2) * 0.5, 2)
+
+
 @persistence.persistent_class
 class UNetBlock(torch.nn.Module):
     def __init__(self,
@@ -176,7 +190,7 @@ class UNetBlock(torch.nn.Module):
             self.qkv = Conv2d(in_channels=out_channels, out_channels=out_channels*3, kernel=1, **(init_attn if init_attn is not None else init))
             self.proj = Conv2d(in_channels=out_channels, out_channels=out_channels, kernel=1, **init_zero)
 
-    def forward(self, x, emb):
+    def forward(self, x, emb, shortcut_input=None):
         orig = x
         x = self.conv0(silu(self.norm0(x)))
 
@@ -188,7 +202,7 @@ class UNetBlock(torch.nn.Module):
             x = silu(self.norm1(x.add_(params)))
 
         x = self.conv1(torch.nn.functional.dropout(x, p=self.dropout, training=self.training))
-        x = x.add_(self.skip(orig) if self.skip is not None else orig)
+        x = x.add_(self.skip(orig if shortcut_input is None else shortcut_input) if self.skip is not None else orig)
         x = x * self.skip_scale
 
         if self.num_heads:
@@ -264,6 +278,7 @@ class SongUNet(torch.nn.Module):
         resample_filter     = [1,1],        # Resampling filter: [1,1] for DDPM++, [1,3,3,1] for NCSN++.
         implicit_mlp        = False,        # enable implicit coordinate encoding
         use_global_cross_attention = False,
+        wdr = False,
     ):
         assert embedding_type in ['fourier', 'positional']
         assert encoder_type in ['standard', 'skip', 'residual']
@@ -289,6 +304,10 @@ class SongUNet(torch.nn.Module):
         self.map_layer0 = Linear(in_features=noise_channels, out_features=emb_channels, **init)
         self.map_layer1 = Linear(in_features=emb_channels, out_features=emb_channels, **init)
 
+        depths = [num_blocks] * len(channel_mult) if isinstance(num_blocks, int) else list(num_blocks)
+        if len(depths) != len(channel_mult) or any(n < 1 for n in depths):
+            raise ValueError("Expected one positive residual block count per level")
+        self.wdr_down = self.wdr_up = None
         # Encoder.
         self.enc = torch.nn.ModuleDict()
         cout = in_channels
@@ -313,13 +332,16 @@ class SongUNet(torch.nn.Module):
                     self.enc[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
             else:
                 self.enc[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
+                if wdr and level == 1:
+                    self.wdr_down = f'{res}x{res}_down'
+                    self.enc[self.wdr_down].skip = Conv2d(4*cout, cout, kernel=1, **init)
                 if encoder_type == 'skip':
                     self.enc[f'{res}x{res}_aux_down'] = Conv2d(in_channels=caux, out_channels=caux, kernel=0, down=True, resample_filter=resample_filter)
                     self.enc[f'{res}x{res}_aux_skip'] = Conv2d(in_channels=caux, out_channels=cout, kernel=1, **init)
                 if encoder_type == 'residual':
                     self.enc[f'{res}x{res}_aux_residual'] = Conv2d(in_channels=caux, out_channels=cout, kernel=3, down=True, resample_filter=resample_filter, fused_resample=True, **init)
                     caux = cout
-            for idx in range(num_blocks):
+            for idx in range(depths[level]):
                 cin = cout
                 cout = model_channels * mult
                 attn = (res in attn_resolutions)
@@ -335,10 +357,15 @@ class SongUNet(torch.nn.Module):
                 self.dec[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
             else:
                 self.dec[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-            for idx in range(num_blocks + 1):
+                if wdr and level == 0:
+                    self.wdr_up = f'{res}x{res}_up'
+                    self.dec[self.wdr_up].skip = Conv2d(cout, cout, kernel=1, **init)
+                    self.high_filter = torch.nn.Conv2d(3*cout, 3*cout, 3, padding=1, groups=3, bias=False)
+                    self.high_prediction = torch.nn.Conv2d(cout, 3*cout, 3, padding=1)
+            for idx in range(depths[level] + 1):
                 cin = cout + skips.pop()
                 cout = model_channels * mult
-                attn = (idx == num_blocks and res in attn_resolutions)
+                attn = (idx == depths[level] and res in attn_resolutions)
                 self.dec[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
             if decoder_type == 'skip' or level == 0:
                 if decoder_type == 'skip' and level < len(channel_mult) - 1:
@@ -377,7 +404,11 @@ class SongUNet(torch.nn.Module):
             elif 'aux_residual' in name:
                 x = skips[-1] = aux = (x + block(aux)) / np.sqrt(2)
             else:
-                x = block(x, emb) if isinstance(block, UNetBlock) else block(x)
+                if name == getattr(self, 'wdr_down', None):
+                    ll, high = haar_split(x)
+                    x = block(x, emb, torch.cat((ll * 0.5, high), dim=1))
+                else:
+                    x = block(x, emb) if isinstance(block, UNetBlock) else block(x)
                 skips.append(x)
 
         # Decoder.
@@ -394,9 +425,14 @@ class SongUNet(torch.nn.Module):
             else:
                 if x.shape[1] != block.in_channels:
                     x = torch.cat([x, skips.pop()], dim=1)
-                x = block(x, emb)
+                if name == getattr(self, 'wdr_up', None):
+                    detail = self.high_filter(high) + self.high_prediction(x)
+                    x = block(x, emb, haar_merge(2 * x, detail))
+                else:
+                    x = block(x, emb)
                 if global_kv is not None and name.endswith('_in0'):
                     x = self.global_cross_attn(x, global_kv)
+        assert not skips
         return aux
 
 #----------------------------------------------------------------------------
