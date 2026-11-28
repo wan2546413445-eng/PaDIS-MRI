@@ -10,6 +10,7 @@ cd "${PROJECT_DIR:-/mnt/SSD/wsy/projects/PaDIS-MRI-main}"
 CBASE=${CBASE:-128}
 CKPT_KIMG=${CKPT_KIMG:-1016}
 model_label="${METHOD:-OPA}_C${CBASE}_L1p25_${CKPT_KIMG}k"
+model_label=${MODEL_LABEL:-$model_label}
 model="$MODEL_PATH"
 val=${VAL_DIR:-/mnt/SSD2/wsy/brain_multicoil/fastmri_3T_eval/val_t1-flair_subsamp/32dB}
 steps=${DPS_STEPS:-40}
@@ -31,7 +32,7 @@ for mask in "${masks[@]}"; do
     mkdir -p "$group"
     for i in "${indices[@]}"; do
         out="$group/sample_$i"
-        if [[ -s "$out/evaluate/comp_plots/results.json" && -s "$out/evaluate/timing.json" && -s "$out/evaluate/dps_sigma_schedule.json" ]]; then
+        if [[ -s "$out/evaluate/comp_plots/results.json" && -s "$out/evaluate/timing.json" && -s "$out/evaluate/dps_sigma_schedule.json" && ( -z ${WDR_PROFILE:-} || -s "$out/evaluate/peak_gib.txt" ) ]]; then
             printf 'Skip R%s sample %s\n' "$mask" "$i"
             continue
         fi
@@ -66,7 +67,13 @@ def arg(name):
 requested = dict(model_path=arg('--model_path'), val_dir=arg('--val_dir'),
                  mask=int(arg('--mask_select')), sample=int(arg('--sample_indices')),
                  steps=int(arg('--steps')), inner_loops=int(arg('--inner_loops')),
-                 sigma_max=1.0, sigma_min=.003, rho=7.0, seed=123,
+                 sigma_max=1.0, sigma_min=.003, rho=7.0, seed=int(arg('--seed')),
+                 zeta=float(arg('--zeta')), image_size=int(arg('--image_size')),
+                 pad=int(arg('--pad')), psize=int(arg('--psize')),
+                 patch_batch=int(os.environ['PADIS_PATCH_BATCH']),
+                 patch_checkpoint=int(os.environ['PADIS_PATCH_CHECKPOINT']),
+                 sampler='pure_dps', profile=bool(os.getenv('WDR_PROFILE')),
+                 checkpoint_sha256=os.getenv('WDR_CHECKPOINT_SHA256'),
                  gpu=os.environ['CUDA_VISIBLE_DEVICES'])
 (Path(arg('--save_dir')) / 'requested_config.json').write_text(json.dumps(requested, indent=2))
 if os.getenv('WDR_PROFILE'):
@@ -74,6 +81,7 @@ if os.getenv('WDR_PROFILE'):
     torch.cuda.reset_peak_memory_stats()
 runpy.run_path('eval_fast/run.py', run_name='__main__')
 if os.getenv('WDR_PROFILE'):
+    (Path(arg('--save_dir'))/'evaluate/peak_gib.txt').write_text(str(torch.cuda.max_memory_allocated()/2**30))
     print('DPS peak allocated GiB', torch.cuda.max_memory_allocated()/2**30,
           'patch batch limit', os.environ['PADIS_PATCH_BATCH'], flush=True)
 expected = int(sys.argv[sys.argv.index('--steps') + 1])
@@ -87,6 +95,7 @@ PY_SIGMA
 
     python - "$group" "$mask" "$steps" "$samples" "$model" "$GPU" "$inner" "$model_label" <<'PY'
 import csv
+import os
 import json
 import sys
 from pathlib import Path
@@ -99,6 +108,8 @@ model, gpu = sys.argv[5:7]
 inner = int(sys.argv[7])
 model_label = sys.argv[8]
 keys = ('psnr', 'ssim', 'nrmse', 'reconstruction_seconds')
+if os.getenv('WDR_PROFILE'):
+    keys += ('gpu_peak_gib',)
 rows = []
 for i in indices:
     evaluate = group / f'sample_{i}/evaluate'
@@ -108,11 +119,18 @@ for i in indices:
     if t is None:
         t = timing['recon_seconds_per_sample'][str(i)]
     rows.append([i, *(float(m[k]) for k in keys[:3]), float(t)])
+    if 'gpu_peak_gib' in keys:
+        rows[-1].append(float((evaluate/'peak_gib.txt').read_text()))
 with (group / 'per_image.csv').open('w', newline='') as f:
     csv.writer(f).writerows([['sample', *keys], *rows])
 summary = dict(dataset='T1FLAIR', mask=mask, model=model_label, checkpoint=model,
                sampler='pure_dps', steps=steps, inner_loops=inner, total_updates=steps*inner,
-               sigma_max=1.0, sigma_min=.003, rho=7.0, seed=123, samples=len(indices), gpu=gpu)
+               sigma_max=1.0, sigma_min=.003, rho=7.0, seed=123, samples=len(indices),
+               sample_indices=indices, gpu=gpu, patch_batch=int(os.environ['PADIS_PATCH_BATCH']),
+               patch_checkpoint=int(os.environ['PADIS_PATCH_CHECKPOINT']))
+if os.getenv('WDR_CHECKPOINT_SHA256'):
+    summary['checkpoint_sha256'] = os.environ['WDR_CHECKPOINT_SHA256']
+    summary['sample_gpus'] = {str(i): json.loads((group / f'sample_{i}/requested_config.json').read_text())['gpu'] for i in indices}
 lines = [f'{model_label} / T1-FLAIR R{mask} / pure DPS {steps}×{inner} / σmax=1 / N={len(indices)}',
          '', '| PSNR (dB) | SSIM | NRMSE | 秒/张 |', '|---:|---:|---:|---:|']
 cells = []
@@ -122,6 +140,8 @@ for col, (key, digits) in enumerate(zip(keys, (4, 5, 5, 2)), 1):
     summary[key + '_std'] = pstdev(values)
     cells.append(f'{mean(values):.{digits}f}' if key=='reconstruction_seconds'
                  else f'{mean(values):.{digits}f} ± {pstdev(values):.{digits}f}')
+if 'gpu_peak_gib' in keys:
+    summary['gpu_peak_gib_max'] = max(r[-1] for r in rows)
 lines.append('| ' + ' | '.join(cells) + ' |')
 text = '\n'.join(lines) + '\n'
 (group / 'summary.md').write_text(text, encoding='utf-8')

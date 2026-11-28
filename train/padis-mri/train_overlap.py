@@ -159,6 +159,7 @@ def parse_float_list(s):
 @click.option('--global-cross-attention', is_flag=True, help='Condition OPA patches on full-image K/V at the SongUNet bottleneck')
 @click.option('--joint-ct-context', type=bool, default=False, show_default=True,
               help='Joint noisy local patch + downsampled noisy full-field condition')
+@click.option('--overlap-consistency-weight', type=click.Choice(['uniform', 'gt_aware']), default='uniform', show_default=True)
 @click.option('--lambda-overlap', help='Overlap auxiliary loss weight', type=float, default=0.01, show_default=True)
 @click.option('--min-noise-ratio', help='Minimum valid diff-mode noise ratio', type=float, default=1.25,
               show_default=True)
@@ -178,6 +179,12 @@ def main(**kwargs):
         --data=datasets/cifar10-32x32.zip --cond=1 --arch=ddpmpp
     """
     opts = dnnlib.EasyDict(kwargs)
+    if opts.overlap_consistency_weight == 'gt_aware' and (
+        (opts.precond, opts.overlap_mode, opts.overlap_geometry, opts.overlap_alignment, opts.overlap_spatial_weight)
+        != ('pedm', 'independent', 'identical', 'symmetric', 'uniform')
+        or opts.get('pfw_cache') or opts.joint_ct_context or opts.global_cross_attention or opts.backbone != 'songunet'
+    ):
+        raise click.ClickException('GT-aware OPA requires plain independent/identical/symmetric/uniform patch EDM')
     if opts.global_cross_attention:
         if opts.joint_ct_context or opts.backbone != 'songunet' or opts.arch != 'ddpmpp' or opts.precond != 'pedm':
             raise click.ClickException('--global-cross-attention requires ddpmpp/songunet/pedm with --joint-ct-context=False')
@@ -388,6 +395,7 @@ def main(**kwargs):
                 alignment_mode=opts.overlap_alignment,
                 pair_geometry=opts.overlap_geometry,
                 spatial_weight_mode=opts.overlap_spatial_weight,
+                consistency_weight=opts.overlap_consistency_weight,
                 global_conditioning=(opts.backbone == 'glf_songunet'),
             )
 

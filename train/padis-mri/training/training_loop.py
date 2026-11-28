@@ -243,7 +243,13 @@ def training_loop(
                 
             batch_mul_avg = np.sum(np.array(p_list) * np.array([4, 2, 1]))  # 2
             
+    smoke = os.environ.get('PADIS_GT_SMOKE') == '1'
+    smoke_sizes = set()
     while True:
+        if smoke:
+            torch.cuda.synchronize(device)
+            torch.cuda.reset_peak_memory_stats(device)
+            iteration_start = time.perf_counter()
 
         # Accumulate gradients.
         optimizer.zero_grad(set_to_none=True)
@@ -290,12 +296,18 @@ def training_loop(
                 else:
                     loss = loss_fn(net=ddp, images=images, labels=labels, augment_pipe=augment_pipe)
 
+                if smoke:
+                    smoke_sizes.add(patch_size)
+                    if not torch.isfinite(loss).all():
+                        raise FloatingPointError(f'Nonfinite loss at patch {patch_size}')
                 training_stats.report('Loss/loss', loss)
                 loss.sum().mul(loss_scaling / batch_gpu_total / batch_mul).backward()
 
         # Update weights.
         for g in optimizer.param_groups:
             g['lr'] = optimizer_kwargs['lr'] * min(cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1)
+        if smoke and not torch.stack([p.grad.isfinite().all() for p in net.parameters() if p.grad is not None]).all():
+            raise FloatingPointError('Nonfinite accumulated gradient before optimizer step')
         for param in net.parameters():
             if param.grad is not None:
                 torch.nan_to_num(param.grad, nan=0, posinf=1e5, neginf=-1e5, out=param.grad)
@@ -309,6 +321,11 @@ def training_loop(
         for p_ema, p_net in zip(ema.parameters(), net.parameters()):
             p_ema.copy_(p_net.detach().lerp(p_ema, ema_beta))
 
+        if smoke:
+            torch.cuda.synchronize(device)
+            print(f'Smoke iteration {time.perf_counter() - iteration_start:.4f}s '
+                  f'peak_allocated={torch.cuda.max_memory_allocated(device)/2**30:.3f} GiB '
+                  f'covered={sorted(smoke_sizes)}')
         # Perform maintenance tasks once per tick.
         cur_nimg += int(batch_size * batch_mul_avg)
         done = (cur_nimg >= total_kimg * 1000)
@@ -357,6 +374,16 @@ def training_loop(
                 with open(os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl'), 'wb') as f:
                     pickle.dump(data, f)
                     
+                if smoke and done:
+                    if smoke_sizes != {16, 32, 64}:
+                        raise RuntimeError(f'Incomplete smoke coverage: {smoke_sizes}')
+                    with open(os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl'), 'rb') as f:
+                        restored = pickle.load(f)
+                    restored_state = restored['ema'].state_dict()
+                    for key, tensor in data['ema'].state_dict().items():
+                        torch.testing.assert_close(restored_state[key], tensor, atol=0, rtol=0)
+                    del restored_state, restored
+                    print('Smoke final EMA snapshot reloaded and verified')
                 # Lightweight unconditional preview. Keep it consistent with the current training FOV.
                 # For 320 + pad64 training, use resolution=320, psize=64, pad=64.
                 samples_cplx = dps_uncond(

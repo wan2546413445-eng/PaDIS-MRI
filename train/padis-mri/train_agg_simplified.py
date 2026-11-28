@@ -336,6 +336,7 @@ def run_sampler_audit(
 @click.option('--sampler-audit-draws', help='Sampling repetitions per audit image',
               type=click.IntRange(min=1), default=200, show_default=True)
 @click.option('-n', '--dry-run', help='Print training options and exit', is_flag=True)
+@click.option('--wdr-variant', type=click.Choice(['baseline','v0','v1','v2','v3','v4']))
 def main(**kwargs):
     """Train diffusion-based generative model using the techniques described in the
     paper "Elucidating the Design Space of Diffusion-Based Generative Models".
@@ -469,6 +470,10 @@ def main(**kwargs):
         # c.network_kwargs.augment_dim = 6
     if opts.implicit_mlp:
         c.network_kwargs.implicit_mlp = True
+    if opts.wdr_variant is not None:
+        if c.network_kwargs.model_type != 'SongUNet':
+            raise click.UsageError('--wdr-variant requires SongUNet')
+        c.network_kwargs.wdr_variant = opts.wdr_variant
     c.network_kwargs.update(dropout=opts.dropout, use_fp16=opts.fp16)
 
     # Training options.

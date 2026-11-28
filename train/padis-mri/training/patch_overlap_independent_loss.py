@@ -31,6 +31,31 @@ from training.patch_overlap_loss import (
 )
 
 
+@torch.no_grad()
+def gt_weight(d1, d2, clean):
+    a, b = d1.float(), d2.float()
+    target = clean.float()
+    errors = (a - target).square() + (b - target).square()
+    return (a - b).square().mean(1, keepdim=True) / (2 * errors.mean(1, keepdim=True) + 1e-12)
+
+
+@torch.no_grad()
+def report_gt_weights(w, sigma, lam):
+    # Pixel moments per pair, then fixed-size reductions without host synchronization.
+    pixels = w.shape[-2] * w.shape[-1]
+    totals = w.sum((1, 2, 3))
+    squares = w.square().sum((1, 2, 3))
+    sigma = sigma.flatten()
+    for name, mask in (('all', torch.ones_like(sigma)), ('sigma_lt_0p1', sigma < 0.1),
+                       ('sigma_0p1_to_1', (sigma >= 0.1) & (sigma < 1)), ('sigma_ge_1', sigma >= 1)):
+        count = mask.sum() * pixels
+        total = (totals * mask).sum()
+        square = (squares * mask).sum()
+        training_stats.report_moments('GT_OPA/' + name + '/weight', torch.stack((count, total, square)))
+        training_stats.report_moments('GT_OPA/' + name + '/lambda_eff',
+                                      torch.stack((count, lam * total, lam ** 2 * square)))
+
+
 @persistence.persistent_class
 class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
     """仅在指定 patch 尺度上启用独立噪声、中心引导的一致性约束。"""
@@ -42,6 +67,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             pair_geometry='shifted', spatial_weight_mode='distance',
             joint_context=False,
             global_conditioning=False, legacy_global_context=False, legacy_context_kwargs=None,
+            consistency_weight="uniform",
     ):
         super().__init__(
             P_mean=P_mean,
@@ -77,6 +103,15 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
                     'requires alignment_mode=symmetric'
                 )
 
+        if consistency_weight not in ("uniform", "gt_aware"):
+            raise ValueError("Unknown consistency weight")
+        if consistency_weight == "gt_aware" and (
+            (noise_mode, pair_geometry, alignment_mode, spatial_weight_mode, active_patch_size)
+            != ("independent", "identical", "symmetric", "uniform", 64)
+            or joint_context or global_conditioning or legacy_global_context
+        ):
+            raise ValueError("GT-aware OPA requires independent/identical/symmetric/uniform patch64")
+        self.consistency_weight = consistency_weight
         self.alignment_mode = alignment_mode
         self.lambda_overlap = float(lambda_overlap)
         self.active_patch_size = int(active_patch_size)
@@ -293,7 +328,11 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
                 interior_is_1, D2_overlap, D1_overlap
             )
 
-        if getattr(self, 'spatial_weight_mode', 'distance') == 'uniform':
+        gt_aware = getattr(self, 'consistency_weight', 'uniform') == 'gt_aware'
+        if gt_aware:
+            confidence = gt_weight(D1, D2, clean1)
+            report_gt_weights(confidence, sigma, self.lambda_overlap)
+        elif getattr(self, 'spatial_weight_mode', 'distance') == 'uniform':
             # 只把空间权重设为1，保留 EDM 的噪声水平权重。
             confidence = torch.ones_like(D1_overlap[:, :1])
 
@@ -312,7 +351,7 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             # 单向：Interior 作为停止梯度的参考，仅 Boundary 接受辅助梯度。
             aux_pixel = weight * confidence * (D_boundary - D_interior.detach()).square()
         else:
-            # 双向：两侧均接受辅助梯度，采用 0.5 系数归一化。
+            # 双向：两侧均接受完整辅助梯度。
             aux_pixel = weight * confidence * (
                 D_boundary - D_interior
             ).square()
@@ -338,4 +377,9 @@ class IndependentNoiseOverlapPatch_EDMLoss(Patch_EDMLoss):
             edm_loss.detach().new_tensor(self.lambda_overlap),
         )
 
+        if gt_aware:
+            with torch.no_grad():
+                training_stats.report('GT_OPA/original', (weight * (D1 - D2).square()).mean())
+                training_stats.report('GT_OPA/weighted', aux_per_pair.detach())
+                training_stats.report('GT_OPA/weighted_over_edm', raw_ratio)
         return edm_loss + weighted_auxiliary

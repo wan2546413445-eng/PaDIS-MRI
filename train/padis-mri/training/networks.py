@@ -192,7 +192,11 @@ class UNetBlock(torch.nn.Module):
 
     def forward(self, x, emb, shortcut_input=None):
         orig = x
-        x = self.conv0(silu(self.norm0(x)))
+        x = silu(self.norm0(x))
+        if getattr(self, 'wavelet_main', False):
+            ll, detail = haar_split(x)
+            x = torch.cat((ll * 0.5, detail), dim=1)
+        x = self.conv0(x)
 
         params = self.affine(emb).unsqueeze(2).unsqueeze(3).to(x.dtype)
         if self.adaptive_scale:
@@ -279,6 +283,7 @@ class SongUNet(torch.nn.Module):
         implicit_mlp        = False,        # enable implicit coordinate encoding
         use_global_cross_attention = False,
         wdr = False,
+        wdr_variant = None,
     ):
         assert embedding_type in ['fourier', 'positional']
         assert encoder_type in ['standard', 'skip', 'residual']
@@ -304,6 +309,13 @@ class SongUNet(torch.nn.Module):
         self.map_layer0 = Linear(in_features=noise_channels, out_features=emb_channels, **init)
         self.map_layer1 = Linear(in_features=emb_channels, out_features=emb_channels, **init)
 
+        if wdr_variant is not None:
+            if wdr_variant not in ('baseline', 'v0', 'v1', 'v2', 'v3', 'v4'):
+                raise ValueError(f'Unknown WDR variant: {wdr_variant}')
+            wdr = wdr_variant != 'baseline'
+            num_blocks = {'baseline': [4,4,4], 'v3': [4,3,4]}.get(wdr_variant, [3,4,4])
+        self.wdr_variant = wdr_variant
+        self.second_down = self.second_up = None
         depths = [num_blocks] * len(channel_mult) if isinstance(num_blocks, int) else list(num_blocks)
         if len(depths) != len(channel_mult) or any(n < 1 for n in depths):
             raise ValueError("Expected one positive residual block count per level")
@@ -335,6 +347,13 @@ class SongUNet(torch.nn.Module):
                 if wdr and level == 1:
                     self.wdr_down = f'{res}x{res}_down'
                     self.enc[self.wdr_down].skip = Conv2d(4*cout, cout, kernel=1, **init)
+                    if wdr_variant == 'v4':
+                        block = self.enc[self.wdr_down]
+                        block.wavelet_main = True
+                        block.conv0 = Conv2d(4*cout, cout, kernel=3, **init)
+                elif wdr_variant == 'v2' and level == 2:
+                    self.second_down = f'{res}x{res}_down'
+                    self.enc[self.second_down].skip = Conv2d(4*cout, cout, kernel=1, **init)
                 if encoder_type == 'skip':
                     self.enc[f'{res}x{res}_aux_down'] = Conv2d(in_channels=caux, out_channels=caux, kernel=0, down=True, resample_filter=resample_filter)
                     self.enc[f'{res}x{res}_aux_skip'] = Conv2d(in_channels=caux, out_channels=cout, kernel=1, **init)
@@ -360,8 +379,18 @@ class SongUNet(torch.nn.Module):
                 if wdr and level == 0:
                     self.wdr_up = f'{res}x{res}_up'
                     self.dec[self.wdr_up].skip = Conv2d(cout, cout, kernel=1, **init)
-                    self.high_filter = torch.nn.Conv2d(3*cout, 3*cout, 3, padding=1, groups=3, bias=False)
-                    self.high_prediction = torch.nn.Conv2d(cout, 3*cout, 3, padding=1)
+                    if wdr_variant == 'v1':
+                        self.high_fusion = torch.nn.Sequential(
+                            torch.nn.Conv2d(4*cout, cout, 1), torch.nn.SiLU(),
+                            torch.nn.Conv2d(cout, 3*cout, 3, padding=1))
+                    else:
+                        self.high_filter = torch.nn.Conv2d(3*cout, 3*cout, 3, padding=1, groups=3, bias=False)
+                        self.high_prediction = torch.nn.Conv2d(cout, 3*cout, 3, padding=1)
+                elif wdr_variant == 'v2' and level == 1:
+                    self.second_up = f'{res}x{res}_up'
+                    self.dec[self.second_up].skip = Conv2d(cout, cout, kernel=1, **init)
+                    self.second_filter = torch.nn.Conv2d(3*cout, 3*cout, 3, padding=1, groups=3, bias=False)
+                    self.second_prediction = torch.nn.Conv2d(cout, 3*cout, 3, padding=1)
             for idx in range(depths[level] + 1):
                 cin = cout + skips.pop()
                 cout = model_channels * mult
@@ -407,6 +436,9 @@ class SongUNet(torch.nn.Module):
                 if name == getattr(self, 'wdr_down', None):
                     ll, high = haar_split(x)
                     x = block(x, emb, torch.cat((ll * 0.5, high), dim=1))
+                elif name == getattr(self, "second_down", None):
+                    ll, second_high = haar_split(x)
+                    x = block(x, emb, torch.cat((ll * 0.5, second_high), dim=1))
                 else:
                     x = block(x, emb) if isinstance(block, UNetBlock) else block(x)
                 skips.append(x)
@@ -426,7 +458,13 @@ class SongUNet(torch.nn.Module):
                 if x.shape[1] != block.in_channels:
                     x = torch.cat([x, skips.pop()], dim=1)
                 if name == getattr(self, 'wdr_up', None):
-                    detail = self.high_filter(high) + self.high_prediction(x)
+                    if getattr(self, 'wdr_variant', None) == 'v1':
+                        detail = self.high_fusion(torch.cat((high, x), dim=1))
+                    else:
+                        detail = self.high_filter(high) + self.high_prediction(x)
+                    x = block(x, emb, haar_merge(2 * x, detail))
+                elif name == getattr(self, 'second_up', None):
+                    detail = self.second_filter(second_high) + self.second_prediction(x)
                     x = block(x, emb, haar_merge(2 * x, detail))
                 else:
                     x = block(x, emb)
